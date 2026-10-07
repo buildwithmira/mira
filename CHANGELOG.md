@@ -4,6 +4,10 @@ All notable changes to Mira are listed here. The format follows [Keep a Changelo
 
 ## Unreleased
 
+## 0.1.1
+
+- npm packages are published under the `@miraframework` scope: `@miraframework/mira`, its platform packages, and `create-mira`. 0.1.0 was released on GitHub only.
+
 ## 0.1.0
 
 First public release.
@@ -21,4 +25,3 @@ First public release.
 - Redirects written for every host
 - `mira migrate` for Next.js, Astro, Hugo, Jekyll, Docusaurus, Gatsby, Eleventy, and VitePress sites
 - `mira mcp` to serve site content over MCP
-- npm packages: `@buildwithmira/mira` and `create-mira`

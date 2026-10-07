@@ -4,7 +4,7 @@
 //
 // <binaries> holds mira-<os>-<cpu> (plus .exe on Windows) for every entry in
 // platforms.json. Writes one folder per package to <out> and prints them in
-// publish order: platform packages first, then @buildwithmira/mira, then
+// publish order: platform packages first, then @miraframework/mira, then
 // create-mira. The version comes from Cargo.toml; --tag must match it.
 // --partial skips missing binaries, for local testing only.
 
@@ -55,7 +55,7 @@ for (const { os, cpu, target } of platforms) {
     if (partial) continue;
     throw new Error(`missing ${binary}`);
   }
-  const name = `@buildwithmira/mira-${os}-${cpu}`;
+  const name = `@miraframework/mira-${os}-${cpu}`;
   const dir = join(out, `mira-${os}-${cpu}`);
   writePackage(
     dir,
@@ -75,7 +75,7 @@ for (const { os, cpu, target } of platforms) {
     [[binary, join("bin", exe)]],
   );
   if (os !== "win32") chmodSync(join(dir, "bin", exe), 0o755);
-  writeFileSync(join(dir, "README.md"), `# ${name}\n\nThe \`mira\` binary for ${os} ${cpu}. Install [@buildwithmira/mira](https://www.npmjs.com/package/@buildwithmira/mira) instead; it picks the right binary for your platform.\n`);
+  writeFileSync(join(dir, "README.md"), `# ${name}\n\nThe \`mira\` binary for ${os} ${cpu}. Install [@miraframework/mira](https://www.npmjs.com/package/@miraframework/mira) instead; it picks the right binary for your platform.\n`);
   optional[name] = version;
 }
 
@@ -85,7 +85,7 @@ writePackage(join(out, "mira"), { ...main, version, files: [...main.files, ...li
 ]);
 
 const create = JSON.parse(readFileSync(join(npmDir, "create-mira", "package.json"), "utf8"));
-writePackage(join(out, "create-mira"), { ...create, version, files: [...create.files, ...licenses], dependencies: { "@buildwithmira/mira": version } }, [
+writePackage(join(out, "create-mira"), { ...create, version, files: [...create.files, ...licenses], dependencies: { "@miraframework/mira": version } }, [
   [join(npmDir, "create-mira", "index.js"), "index.js"],
   [join(npmDir, "create-mira", "README.md"), "README.md"],
 ]);

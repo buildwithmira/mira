@@ -1,15 +1,15 @@
-# @buildwithmira/mira
+# @miraframework/mira
 
 The `mira` command line tool for [Mira](https://github.com/buildwithmira/mira), a static site framework for content sites.
 
 ```bash
-npm install --save-dev @buildwithmira/mira
+npm install --save-dev @miraframework/mira
 npx mira dev
 ```
 
 To start a new site, run `npm create mira@latest my-site`.
 
-This package contains a small launcher. The compiled binary comes from a platform package, such as `@buildwithmira/mira-linux-x64`, which npm installs automatically for Linux (x64, arm64), macOS (arm64, x64), and Windows (x64, arm64).
+This package contains a small launcher. The compiled binary comes from a platform package, such as `@miraframework/mira-linux-x64`, which npm installs automatically for Linux (x64, arm64), macOS (arm64, x64), and Windows (x64, arm64).
 
 | Command | What it does |
 | --- | --- |

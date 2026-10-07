@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/buildwithmira/mira/actions/workflows/ci.yml"><img src="https://github.com/buildwithmira/mira/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://www.npmjs.com/package/@buildwithmira/mira"><img src="https://img.shields.io/npm/v/@buildwithmira/mira" alt="npm"></a>
+  <a href="https://www.npmjs.com/package/@miraframework/mira"><img src="https://img.shields.io/npm/v/@miraframework/mira" alt="npm"></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="License: MIT OR Apache-2.0"></a>
 </p>
 
@@ -41,7 +41,7 @@ Mira is pre-release. It ships as a single native binary for Linux (x64, arm64), 
 **npm.** Installs the binary for your platform. Node.js 18 or later.
 
 ```bash
-npm install --save-dev @buildwithmira/mira
+npm install --save-dev @miraframework/mira
 ```
 
 **Prebuilt binaries.** Attached to each [release](https://github.com/buildwithmira/mira/releases), with SHA-256 checksums.
@@ -83,7 +83,7 @@ my-site/
 | `crates/mira_cli` | The `mira` binary: commands, dev server, MCP server, terminal output |
 | `crates/mira_compiler/runtime` | The client runtime and base CSS embedded in every build |
 | `crates/mira_compiler/starter` | The template used by `mira new` |
-| `npm/` | The npm packages: `@buildwithmira/mira`, its per-platform binaries, and `create-mira` |
+| `npm/` | The npm packages: `@miraframework/mira`, its per-platform binaries, and `create-mira` |
 | `tools/check_host.py` | Checks a deployed site's status codes, headers, and content types |
 
 ## Contributing
