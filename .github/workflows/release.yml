@@ -49,7 +49,7 @@ jobs:
           cd out/archive
           if [[ -n "$ext" ]]; then 7z a -bd "../mira-${{ matrix.target }}.zip" mira >/dev/null
           else tar -czf "../mira-${{ matrix.target }}.tar.gz" mira; fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: mira-${{ matrix.target }}
           path: |
