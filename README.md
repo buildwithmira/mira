@@ -1,8 +1,4 @@
-<p align="center"><img src="assets/mira-mark.svg" width="56" alt="Mira"></p>
-
-<h1 align="center">Mira</h1>
-
-<p align="center">A static site framework for content sites, written in Rust.</p>
+<p align="center"><img src="assets/banner.jpg" alt="Mira: the web framework that is design led, fast, secure, and ready for agents."></p>
 
 <p align="center">
   <a href="https://github.com/buildwithmira/mira/actions/workflows/ci.yml"><img src="https://github.com/buildwithmira/mira/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
