@@ -7,7 +7,7 @@
 const { spawnSync } = require("node:child_process");
 
 const target = `${process.platform}-${process.arch}`;
-const pkg = `@buildwithmira/mira-${target}`;
+const pkg = `@miraframework/mira-${target}`;
 const exe = process.platform === "win32" ? "mira.exe" : "mira";
 
 let binary;
@@ -18,7 +18,7 @@ try {
   console.error(
     supported.includes(target)
       ? `mira: the package ${pkg} is missing.\n` +
-          "It is an optional dependency of @buildwithmira/mira. Reinstall without --no-optional or --omit=optional."
+          "It is an optional dependency of @miraframework/mira. Reinstall without --no-optional or --omit=optional."
       : `mira: no prebuilt binary for ${target}.\n` +
           "Build from source with: cargo install --git https://github.com/buildwithmira/mira mira",
   );

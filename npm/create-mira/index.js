@@ -18,7 +18,7 @@ if (args.includes("--help") || args.includes("-h")) {
 const dir = args.find((arg) => !arg.startsWith("-")) ?? "my-site";
 const root = path.resolve(dir);
 
-const launcher = require.resolve("@buildwithmira/mira/bin/mira.js");
+const launcher = require.resolve("@miraframework/mira/bin/mira.js");
 const result = spawnSync(process.execPath, [launcher, "new", dir, "--no-hints"], { stdio: "inherit" });
 if (result.status !== 0) {
   process.exit(result.status ?? 1);
@@ -37,7 +37,7 @@ if (!fs.existsSync(manifest)) {
     name,
     private: true,
     scripts: { dev: "mira dev", build: "mira build" },
-    devDependencies: { "@buildwithmira/mira": `^${version}` },
+    devDependencies: { "@miraframework/mira": `^${version}` },
   };
   fs.writeFileSync(manifest, JSON.stringify(pkg, null, 2) + "\n");
 }
