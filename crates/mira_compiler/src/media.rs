@@ -472,8 +472,9 @@ fn normalize(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
-    fn project() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("mira-media-{}", std::process::id()));
+    /// A project with one image, in a folder of its own: tests run in parallel.
+    fn project(test: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mira-media-{}-{test}", std::process::id()));
         std::fs::create_dir_all(dir.join("public")).unwrap();
         std::fs::create_dir_all(dir.join("content")).unwrap();
         let mut img = image::RgbImage::new(40, 20);
@@ -486,7 +487,7 @@ mod tests {
 
     #[test]
     fn frames_an_image() {
-        let root = project();
+        let root = project("frames_an_image");
         let pipeline = Pipeline::new(&root);
         let html =
             r#"<p><mira-frame src="./Build Pipeline.png" alt="Build pipeline" caption="Cold build" credit="Mira" zoom></mira-frame></p>"#;
@@ -527,7 +528,7 @@ mod tests {
 
     #[test]
     fn requires_alt_text() {
-        let root = project();
+        let root = project("requires_alt_text");
         let err = Pipeline::new(&root)
             .expand(r#"<mira-frame src="@/content/Build Pipeline.png"></mira-frame>"#, &root, "/")
             .unwrap_err()
@@ -537,7 +538,7 @@ mod tests {
 
     #[test]
     fn rejects_paths_outside_the_project() {
-        let root = project();
+        let root = project("rejects_paths_outside_the_project");
         let err = Pipeline::new(&root)
             .expand(r#"<mira-frame src="../../secret.png" alt=""></mira-frame>"#, &root.join("content"), "/")
             .unwrap_err()

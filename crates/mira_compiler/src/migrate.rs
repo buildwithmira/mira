@@ -1207,8 +1207,9 @@ SITE_LIST</ul>
 mod tests {
     use super::*;
 
-    fn site(files: &[(&str, &str)]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("mira-migrate-{}-{}", std::process::id(), files.len() * 7 + files[0].0.len()));
+    /// A source project in a folder of its own: tests run in parallel.
+    fn site(name: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mira-migrate-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (path, contents) in files {
             let p = dir.join(path);
@@ -1220,24 +1221,27 @@ mod tests {
 
     #[test]
     fn detects_frameworks() {
-        let next = site(&[("package.json", r#"{"dependencies":{"next":"15"}}"#), ("posts/a.md", "# A")]);
+        let next = site("detect-next", &[("package.json", r#"{"dependencies":{"next":"15"}}"#), ("posts/a.md", "# A")]);
         assert_eq!(detect(&next), Framework::Nextjs);
-        let hugo = site(&[("hugo.toml", "title = 'x'"), ("content/a.md", "# A")]);
+        let hugo = site("detect-hugo", &[("hugo.toml", "title = 'x'"), ("content/a.md", "# A")]);
         assert_eq!(detect(&hugo), Framework::Hugo);
-        let jekyll = site(&[("_config.yml", "title: x"), ("_posts/2024-01-02-a.md", "# A")]);
+        let jekyll = site("detect-jekyll", &[("_config.yml", "title: x"), ("_posts/2024-01-02-a.md", "# A")]);
         assert_eq!(detect(&jekyll), Framework::Jekyll);
     }
 
     #[test]
     fn migrates_jekyll_with_redirects() {
-        let src = site(&[
-            ("_config.yml", "title: Old Blog\nurl: https://old.example\n"),
-            (
-                "_posts/2024-05-01-hello-world.md",
-                "---\ntitle: Hello\nexcerpt: First post\ncategories: news\n---\n\nHi {{ site.title }}\n{% highlight rust %}\nfn main() {}\n{% endhighlight %}\n",
-            ),
-            ("about.md", "---\ntitle: About\n---\nAbout me\n"),
-        ]);
+        let src = site(
+            "s4",
+            &[
+                ("_config.yml", "title: Old Blog\nurl: https://old.example\n"),
+                (
+                    "_posts/2024-05-01-hello-world.md",
+                    "---\ntitle: Hello\nexcerpt: First post\ncategories: news\n---\n\nHi {{ site.title }}\n{% highlight rust %}\nfn main() {}\n{% endhighlight %}\n",
+                ),
+                ("about.md", "---\ntitle: About\n---\nAbout me\n"),
+            ],
+        );
         let dest = src.with_extension("out");
         let _ = std::fs::remove_dir_all(&dest);
         let report = migrate(&MigrateOptions { source: src.clone(), dest: dest.clone(), from: None, dry_run: false }).unwrap();
@@ -1290,7 +1294,7 @@ mod tests {
 
     #[test]
     fn refuses_a_destination_inside_the_source() {
-        let src = site(&[("a.md", "# A")]);
+        let src = site("dest-inside", &[("a.md", "# A")]);
         let err = migrate(&MigrateOptions { source: src.clone(), dest: src.join("new"), from: None, dry_run: false });
         let _ = err; // A new folder does not exist yet, so canonicalize fails; check an existing one.
         std::fs::create_dir_all(src.join("inside")).unwrap();
