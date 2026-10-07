@@ -1,0 +1,112 @@
+---
+title: Home
+description: Notes on making things for the web, built with Mira and published as static HTML.
+layout: false
+---
+<template>
+<div class="welcome">
+  <header class="top">
+    <a class="brand" href="/" mira-morph="wordmark"><mira-mark class="brand-mark" /><span>{{ site.title }}</span></a>
+    <nav class="mira-tabs" aria-label="Primary">
+      <a href="/" mira-nav>Home</a>
+      <a href="/posts/" mira-nav>Writing</a>
+      <a href="/about/" mira-nav>About</a>
+    </nav>
+  </header>
+
+  <main id="main" class="main">
+    <section class="hero">
+      <p class="mira-eyebrow">Mira &middot; Starter</p>
+      <h1>Fast by default. Beautiful on <span class="mira-hl">arrival.<i></i><i></i><i></i><i></i></span></h1>
+      <p class="lede">Get started by editing <code>routes/index.mira</code>. Save the file and this page reloads.</p>
+      <div class="actions">
+        <a class="mira-btn" data-variant="accent" href="/posts/">Read the writing</a>
+        <a class="mira-btn" data-variant="outline" href="/index.md">View as Markdown</a>
+      </div>
+    </section>
+
+    <div class="mira-atmo stage" data-palette="cobalt" aria-hidden="true">
+      <div class="mira-atmo__field"></div>
+      <div class="glass">
+        <span class="mira-glass" data-shape="disc"></span>
+        <span class="mira-glass" data-shape="plus" data-glow></span>
+        <span class="mira-glass" data-shape="ring"></span>
+        <span class="mira-glass" data-shape="steps"></span>
+        <span class="mira-glass" data-shape="tile"></span>
+      </div>
+      <span class="mira-cursor" data-tone="ember">
+        <svg viewBox="0 0 16 20"><path d="M1 1l13 9.2-6 1.1L4.6 18z"/></svg>
+        <span class="mira-cursor__tag">You</span>
+      </span>
+    </div>
+
+    <section class="cards" aria-label="What to try">
+      <a class="mira-card" href="/posts/">
+        <span class="mira-eyebrow">01 &middot; Motion</span>
+        <h2>Pages that move</h2>
+        <p>Open a post. Its title morphs into place, and going back plays it in reverse.</p>
+      </a>
+      <a class="mira-card" href="/llms.txt">
+        <span class="mira-eyebrow">02 &middot; Agents</span>
+        <h2>Readable by agents</h2>
+        <p>Every page has a Markdown twin, and the whole site is indexed in llms.txt.</p>
+      </a>
+      <a class="mira-card" href="/about/">
+        <span class="mira-eyebrow">03 &middot; Design</span>
+        <h2>Tokens, not overrides</h2>
+        <p>Color, type, and motion are tokens you change in mira.config.json.</p>
+      </a>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span class="mira-eyebrow">Static HTML &middot; 0 KB app JavaScript</span>
+  </footer>
+</div>
+</template>
+
+<style>
+.welcome {
+  display: grid;
+  gap: var(--space-16);
+  width: min(100%, 72rem);
+  margin-inline: auto;
+  padding: var(--space-6) var(--space-4) var(--space-8);
+}
+.top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.brand-mark { width: 20px; }
+.main { display: grid; gap: var(--space-12); }
+.hero { display: grid; gap: var(--space-4); justify-items: start; padding-top: var(--space-8); }
+.hero h1 { font-size: var(--display-lg); line-height: 0.95; letter-spacing: -0.04em; max-width: 14ch; }
+.lede { color: var(--ink-muted); font-size: var(--text-lg); max-width: 40ch; }
+.lede code { color: var(--ink); background: var(--surface-2); padding: 0.1em 0.4em; border-radius: var(--radius-sm); }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
+.stage { min-height: clamp(260px, 38vw, 420px); border-radius: var(--radius-xl); }
+.glass {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+  justify-items: center;
+  padding: var(--space-8);
+  gap: var(--space-4);
+}
+.glass .mira-glass { --mira-size: clamp(44px, 9vw, 112px); }
+.glass .mira-glass:nth-child(2) { --mira-size: clamp(56px, 12vw, 144px); }
+.glass .mira-glass:nth-child(4) { align-self: end; }
+.glass .mira-glass:nth-child(1) { align-self: start; }
+.stage .mira-cursor { position: absolute; left: 58%; top: 22%; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--space-4); }
+.cards h2 { font-size: 1.375rem; }
+.foot { padding-top: var(--space-6); border-top: 1px solid var(--line); }
+</style>

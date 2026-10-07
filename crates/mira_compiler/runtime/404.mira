@@ -1,0 +1,67 @@
+---
+title: Page not found
+description: This page doesn’t exist.
+layout: false
+transition: fade
+---
+<template>
+<div class="nf">
+  <header class="nf-top">
+    <a class="nf-brand" href="/"><mira-mark class="nf-mark" /><span>{{ site.title }}</span></a>
+    <span class="mira-eyebrow"><span class="dot"></span>Error &middot; 404</span>
+  </header>
+  <main id="main" class="nf-main">
+    <div class="mira-atmo nf-poster" data-palette="sunset" aria-hidden="true">
+      <div class="mira-atmo__field"></div>
+      <div class="mira-atmo__orb"></div>
+      <mira-pixels class="nf-digits" text="404" dither />
+    </div>
+    <div class="nf-copy">
+      <h1>This page is <span class="mira-hl">missing.<i></i><i></i><i></i><i></i></span></h1>
+      <p>The link may be broken, or the page may have moved.</p>
+      <a class="mira-btn" href="/">Go home</a>
+    </div>
+  </main>
+</div>
+</template>
+
+<style>
+.nf {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--space-12);
+  width: min(100%, 72rem);
+  margin-inline: auto;
+  padding: var(--space-6) var(--space-4) var(--space-12);
+}
+.nf-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.nf-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+.nf-mark { width: 20px; }
+.nf-main {
+  align-self: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  align-items: center;
+  gap: var(--space-12);
+}
+.nf-poster {
+  aspect-ratio: 4 / 5;
+  max-height: 70dvh;
+  border-radius: var(--radius-xl);
+  display: grid;
+  place-items: center;
+}
+.nf-digits { width: 58%; color: var(--on-warm); position: relative; }
+.nf-copy { display: grid; justify-items: start; gap: var(--space-4); }
+.nf-copy h1 { font-size: var(--display-lg); line-height: 0.95; letter-spacing: -0.04em; }
+.nf-copy p { color: var(--ink-muted); font-size: var(--text-lg); max-width: 32ch; }
+.nf-copy .mira-btn { margin-top: var(--space-4); }
+</style>

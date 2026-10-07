@@ -1,0 +1,168 @@
+@layer mira.reset, mira.tokens, mira.theme, mira.base, mira.prose, mira.components, mira.transitions, layout, page;
+
+@view-transition { navigation: auto; }
+
+@layer mira.reset {
+  *, *::before, *::after { box-sizing: border-box; }
+  * { margin: 0; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; height: auto; }
+  input, button, textarea, select { font: inherit; }
+}
+
+/* Tokens from the Mira design system. Night is the primary theme and Paper
+   the light one; light-dark() picks per the root color-scheme. */
+@layer mira.tokens {
+  :root {
+    color-scheme: dark;
+
+    --surface-0: light-dark(#f4f4f1, #0b0b0d);
+    --surface-1: light-dark(#ffffff, #141417);
+    --surface-2: light-dark(#e9e9e5, #1d1d21);
+    --line: light-dark(#d2d2cd, #2a2a2f);
+    --line-strong: light-dark(#76767e, #74747c);
+    --ink: light-dark(#0b0b0d, #f4f4f1);
+    --ink-muted: light-dark(#54545b, #a8a8b0);
+    --ink-faint: light-dark(#686870, #8c8c94);
+    --fill-ink: light-dark(#0b0b0d, #f4f4f1);
+    --on-fill-ink: light-dark(#f4f4f1, #0b0b0d);
+    --focus: light-dark(#0a1ffa, #a9b6ff);
+
+    /* Secondary palette: atmospheres, highlights, tags, and glass. */
+    --ember: #f4561e;
+    --sun: #ff9a1f;
+    --peach: #f2a383;
+    --rose: #f48db4;
+    --cobalt: #0a1ffa;
+    --ocean: #0a6ab0;
+    --navy: #04215f;
+    --haze: #bbd7f2;
+    --lilac: #d3c2dc;
+    --lagoon: #2e9e7c;
+    --lime: #c6e25a;
+    --on-warm: #0b0b0d;
+    --on-cool: #ffffff;
+
+    --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    --font-text: "Geist", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "Geist Mono", ui-monospace, Menlo, monospace;
+    --font-pixel: "Pixelify Sans", "Geist Mono", monospace;
+
+    --text-xs: 0.6875rem;
+    --text-sm: 0.8125rem;
+    --text-base: 0.9375rem;
+    --text-lg: 1.125rem;
+    --display-sm: 1.75rem;
+    --display-md: clamp(2.25rem, 1.6rem + 2.8vw, 3.5rem);
+    --display-lg: clamp(2.75rem, 1.6rem + 5vw, 5rem);
+    --display-xl: clamp(3.5rem, 1.5rem + 8.5vw, 7.5rem);
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-12: 48px;
+    --space-16: 64px;
+    --space-24: 96px;
+
+    --radius-px: 2px;
+    --radius-sm: 6px;
+    --radius-md: 12px;
+    --radius-lg: 24px;
+    --radius-xl: 40px;
+    --radius-pill: 999px;
+
+    --lift: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 60px rgba(0, 0, 0, 0.55);
+    --glow-ember: 0 0 90px rgba(244, 86, 30, 0.45);
+    --glow-cobalt: 0 0 100px rgba(10, 31, 250, 0.55);
+    --blur-glass: 24px;
+    --blur-field: 34px;
+    --grain-opacity: 0.35;
+    --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n' x='0' y='0' width='100%25' height='100%25'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+
+    --measure: 68ch;
+
+    --motion-fast: 120ms;
+    --motion-control: 320ms;
+    --motion-morph: 520ms;
+    --mira-spring: linear(0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 18.9%, 0.721 25.3%, 0.849 31.5%, 0.937 38.1%, 0.968 41.8%, 0.991 45.7%, 1.006 50.1%, 1.015 55%, 1.017 63.9%, 1.001);
+    --mira-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@layer mira.base {
+  html {
+    background: var(--surface-0);
+    color: var(--ink);
+    font-family: var(--font-text);
+    font-size: var(--text-base);
+    line-height: 1.55;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+    font-optical-sizing: auto;
+    hanging-punctuation: first last;
+  }
+  body { min-height: 100dvh; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 500; text-wrap: balance; }
+  h1 { font-size: var(--display-md); line-height: 1; letter-spacing: -0.035em; }
+  h2 { font-size: var(--display-sm); line-height: 1.15; letter-spacing: -0.02em; font-weight: 600; }
+  h3 { font-size: var(--text-lg); line-height: 1.3; letter-spacing: -0.01em; font-weight: 600; }
+  p, li, figcaption { text-wrap: pretty; }
+  a { color: var(--ink); text-underline-offset: 0.2em; text-decoration-thickness: 1px; text-decoration-color: var(--line-strong); }
+  a:hover { text-decoration-color: var(--ink); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-px); }
+  [tabindex="-1"]:focus { outline: none; }
+  ::selection { background: var(--sun); color: var(--on-warm); }
+  code, pre, kbd { font-family: var(--font-mono); font-size: 0.9em; }
+}
+
+@layer mira.prose {
+  .prose { max-width: var(--measure); font-size: var(--text-lg); line-height: 1.6; }
+  .prose > * + * { margin-top: 1.1em; }
+  .prose :is(h2, h3) { margin-top: 1.8em; }
+  .prose :is(h2, h3) + * { margin-top: 0.6em; }
+  .prose :is(ul, ol) { padding-left: 1.25em; }
+  .prose li + li { margin-top: 0.35em; }
+  .prose blockquote:not(.markdown-alert) { border-left: 2px solid var(--line-strong); padding-left: var(--space-4); color: var(--ink-muted); }
+  .prose :not(pre) > code { background: var(--surface-2); padding: 0.1em 0.35em; border-radius: var(--radius-sm); }
+  .prose pre { background: var(--surface-2); padding: var(--space-4); border-radius: var(--radius-md); overflow-x: auto; line-height: 1.5; font-size: var(--text-sm); }
+  .prose hr { border: 0; border-top: 1px solid var(--line); margin-block: 2.5em; }
+  .prose img { border-radius: var(--radius-lg); }
+  .prose table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
+  .prose :is(th, td) { border-bottom: 1px solid var(--line); padding: var(--space-2) var(--space-3); text-align: left; }
+}
+
+@layer mira.transitions {
+  ::view-transition-group(*) { animation-duration: var(--motion-morph); animation-timing-function: var(--mira-spring); }
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--motion-fast); animation-timing-function: var(--mira-ease-out); }
+
+  html:active-view-transition-type(slide-up)::view-transition-old(root) { animation: 160ms var(--mira-ease-out) both mira-fade-out; }
+  html:active-view-transition-type(slide-up)::view-transition-new(root) { animation: var(--motion-morph) var(--mira-spring) both mira-rise-in; }
+  html:active-view-transition-type(slide-up):active-view-transition-type(back)::view-transition-old(root) { animation: 160ms var(--mira-ease-out) both mira-sink-out; }
+  html:active-view-transition-type(slide-up):active-view-transition-type(back)::view-transition-new(root) { animation: var(--motion-control) var(--mira-ease-out) both mira-fade-in; }
+
+  html:active-view-transition-type(slide)::view-transition-old(root) { animation: var(--motion-control) var(--mira-ease-out) both mira-push-out; }
+  html:active-view-transition-type(slide)::view-transition-new(root) { animation: var(--motion-control) var(--mira-ease-out) both mira-push-in; }
+  html:active-view-transition-type(slide):active-view-transition-type(back)::view-transition-old(root) { animation-name: mira-pull-out; }
+  html:active-view-transition-type(slide):active-view-transition-type(back)::view-transition-new(root) { animation-name: mira-pull-in; }
+
+  html:active-view-transition-type(none)::view-transition-group(*),
+  html:active-view-transition-type(none)::view-transition-old(*),
+  html:active-view-transition-type(none)::view-transition-new(*) { animation: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: 0s !important; }
+    ::view-transition-old(root) { animation: 120ms linear both mira-fade-out !important; }
+    ::view-transition-new(root) { animation: 120ms linear both mira-fade-in !important; }
+  }
+}
+
+@keyframes mira-fade-in { from { opacity: 0; } }
+@keyframes mira-fade-out { to { opacity: 0; } }
+@keyframes mira-rise-in { from { opacity: 0; transform: translateY(24px); } }
+@keyframes mira-sink-out { to { opacity: 0; transform: translateY(24px); } }
+@keyframes mira-push-out { to { opacity: 0; transform: translateX(-12%); } }
+@keyframes mira-push-in { from { opacity: 0; transform: translateX(12%); } }
+@keyframes mira-pull-out { to { opacity: 0; transform: translateX(12%); } }
+@keyframes mira-pull-in { from { opacity: 0; transform: translateX(-12%); } }

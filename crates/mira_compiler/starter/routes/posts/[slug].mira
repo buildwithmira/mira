@@ -1,0 +1,16 @@
+<template>
+<article class="post">
+  <a class="mira-btn" data-variant="outline" data-size="sm" href="/posts/">&larr; Writing</a>
+  <p class="mira-eyebrow"><time datetime="{{ entry.date }}">{{ entry.date }}</time> &middot; {{ entry.reading_time }} min read</p>
+  <h1 mira-morph="title-{{ entry.slug }}">{{ entry.title }}</h1>
+  <div class="prose">
+    <slot />
+  </div>
+</article>
+</template>
+
+<style>
+.post { display: grid; justify-items: start; gap: var(--space-4); }
+.post h1 { width: fit-content; margin-bottom: var(--space-6); }
+.post > .mira-btn { margin-bottom: var(--space-6); }
+</style>

@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: A minimal site or the exact files needed, and the command you ran.
+      placeholder: |
+        1. mira new site
+        2. Add routes/example.md with ...
+        3. mira build --root site
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The full command output. Output from `mira build --json` is most useful.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Mira version
+      description: Output of `mira --version`.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.3, arm64
+    validations:
+      required: true

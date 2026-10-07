@@ -1,0 +1,29 @@
+{
+  "site": {
+    "title": "Field Notes",
+    "description": "A small site built with Mira.",
+    "lang": "en"
+  },
+  "transitions": {
+    "default": "fade",
+    "pairs": {
+      "/posts/ -> /posts/*": "slide-up"
+    }
+  },
+  "prefetch": {
+    "eagerness": "moderate",
+    "prerender": true
+  },
+  "collections": {
+    "posts": {
+      "fields": {
+        "title": "string",
+        "description": "string?",
+        "date": "date"
+      }
+    }
+  },
+  "budgets": {
+    "page_kb": 14
+  }
+}

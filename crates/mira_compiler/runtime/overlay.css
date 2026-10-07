@@ -1,0 +1,190 @@
+/* Mira dev overlay, on the Mira design system's Night tokens. Scoped in a
+   shadow root, so it never touches the page's styles. */
+:host {
+  all: initial;
+  --surface-0: #0b0b0d;
+  --surface-1: #141417;
+  --surface-2: #1d1d21;
+  --line: #2a2a2f;
+  --line-strong: #74747c;
+  --ink: #f4f4f1;
+  --ink-muted: #a8a8b0;
+  --ink-faint: #8c8c94;
+  --ember: #f4561e;
+  --cobalt: #0a1ffa;
+  --focus: #a9b6ff;
+  --spring: linear(0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 18.9%, 0.721 25.3%, 0.849 31.5%, 0.937 38.1%, 0.968 41.8%, 0.991 45.7%, 1.006 50.1%, 1.015 55%, 1.017 63.9%, 1.001);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  font-family: "Geist", "Helvetica Neue", Arial, sans-serif;
+  color: var(--ink);
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  grid-template-columns: minmax(0, 880px);
+  justify-content: center;
+  align-content: start;
+  padding: 8vh 16px 16px;
+  overflow-y: auto;
+  background:
+    radial-gradient(60% 40% at 50% 112%, rgb(244 86 30 / 0.22), transparent 70%),
+    radial-gradient(40% 32% at 88% -4%, rgb(10 31 250 / 0.2), transparent 70%),
+    rgb(11 11 13 / 0.8);
+  backdrop-filter: blur(12px);
+  animation: fade 160ms var(--ease-out);
+}
+
+.backdrop::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  mix-blend-mode: overlay;
+  background-size: 220px 220px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n' x='0' y='0' width='100%25' height='100%25'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+}
+
+.panel {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 60px rgba(0, 0, 0, 0.55);
+  padding: 20px 24px 18px;
+  animation: rise 520ms var(--spring);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mark { width: 18px; height: 18px; fill: var(--ink); flex: none; }
+.mark .off { opacity: 0.14; }
+
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 12px/1.4 "Geist Mono", ui-monospace, Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.kind::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--ember);
+  box-shadow: 0 0 10px var(--ember);
+}
+
+.nav { display: flex; align-items: center; gap: 6px; margin-left: 12px; color: var(--ink-muted); font: 500 12px/1 "Geist Mono", ui-monospace, monospace; }
+.count { font-variant-numeric: tabular-nums; }
+
+button {
+  font: inherit;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 160ms;
+}
+button:hover { border-color: var(--ink); }
+button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.step { width: 26px; height: 26px; line-height: 1; padding: 0; }
+.copy { margin-left: auto; padding: 4px 9px; font: 500 12px/1 "Geist Mono", ui-monospace, monospace; letter-spacing: 0.04em; color: var(--ink-muted); min-width: 64px; }
+.copy + .close { margin-left: 0; }
+.close { margin-left: auto; padding: 4px 9px; font: 500 12px/1 "Geist Mono", ui-monospace, monospace; letter-spacing: 0.04em; color: var(--ink-muted); }
+
+.message {
+  margin: 20px 0 8px;
+  font-family: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.loc {
+  margin: 0 0 16px;
+  font: 400 13px/1.4 "Geist Mono", ui-monospace, Menlo, monospace;
+  color: var(--ink-muted);
+}
+
+.code {
+  margin: 0 0 16px;
+  padding: 12px 0;
+  background: var(--surface-2);
+  border-radius: 12px;
+  font: 400 13px/1.7 "Geist Mono", ui-monospace, Menlo, monospace;
+  overflow-x: auto;
+}
+.row { display: block; padding: 0 16px; color: var(--ink-faint); white-space: pre; }
+.row.current { color: var(--ink); background: rgb(244 86 30 / 0.12); box-shadow: inset 2px 0 var(--ember); }
+.ln { display: inline-block; margin-right: 16px; color: #5c5c64; user-select: none; }
+.row.current .ln { color: var(--ink); }
+.stack { padding: 12px 16px; color: var(--ink-muted); white-space: pre-wrap; }
+
+.hint { display: flex; gap: 12px; align-items: baseline; margin: 0 0 12px; font-size: 15px; line-height: 1.55; }
+.label {
+  flex: none;
+  font: 500 11px/1.4 "Geist Mono", ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: #ff9a1f;
+  color: #0b0b0d;
+}
+
+.causes { margin: 0 0 12px; padding-left: 18px; color: var(--ink-muted); font-size: 13px; }
+
+.foot {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-faint);
+  font: 500 11px/1.4 "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pill {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 10px;
+  background: var(--surface-1);
+  border-color: var(--line);
+  border-radius: 999px;
+  font: 500 12px/1 "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 40px rgb(244 86 30 / 0.25);
+  animation: rise 320ms var(--spring);
+}
+.pill .mark { width: 14px; height: 14px; }
+
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop, .panel, .pill { animation: fade 120ms linear; }
+}

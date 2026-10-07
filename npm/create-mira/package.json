@@ -1,0 +1,25 @@
+{
+  "name": "create-mira",
+  "version": "0.1.0",
+  "description": "Create a new Mira site: npm create mira@latest",
+  "license": "MIT OR Apache-2.0",
+  "author": "Om Rajguru <hi@omrajguru.in>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buildwithmira/mira.git",
+    "directory": "npm/create-mira"
+  },
+  "homepage": "https://github.com/buildwithmira/mira#readme",
+  "bugs": "https://github.com/buildwithmira/mira/issues",
+  "keywords": ["mira", "static-site-generator", "create"],
+  "bin": {
+    "create-mira": "index.js"
+  },
+  "files": ["index.js"],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@buildwithmira/mira": "0.1.0"
+  }
+}
