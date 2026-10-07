@@ -1,0 +1,28 @@
+[package]
+name = "mira_compiler"
+description = "The Mira compiler: routes, content, and assets in; static HTML out."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
+flate2 = "1.1.10"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+imagesize = "0.15.0"
+pulldown-cmark = "0.13.4"
+ravif = { version = "0.13.0", default-features = false, features = ["threading"] }
+rayon = "1.12.0"
+rgb = "0.8.53"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+serde_yaml = "0.9.34"
+sha2 = "0.11.0"
+syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "regex-fancy", "html", "parsing"] }
+toml = "1.1.6"
+walkdir = "2.5.0"

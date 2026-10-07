@@ -1,0 +1,401 @@
+/* Mira components, from the Mira design system. Each block starts with an
+   @component marker naming its class; the compiler inlines a block only on
+   pages whose HTML uses that class. */
+
+/* @component mira-frame */
+/* The frame is the decoration. Hairlines only, one hue, and no shadows or
+   gradients on media. The mosaic background is the loading state. */
+.mira-frame { position: relative; display: grid; gap: var(--space-3); margin: 0; }
+.mira-frame__media {
+  position: relative;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  background-size: cover;
+  image-rendering: pixelated;
+  color: inherit;
+}
+.mira-frame__media :is(img, video) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: calc(var(--radius-md) - 1px);
+  image-rendering: auto;
+}
+.mira-js .mira-frame:not([data-loaded]) img { opacity: 0; }
+.mira-frame[data-loaded] img { animation: mira-resolve 360ms steps(4, end) both; }
+a.mira-frame__media { cursor: zoom-in; }
+.mira-frame__media:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; border-radius: var(--radius-md); }
+.mira-frame__h {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-px);
+  background: var(--surface-0);
+  transition: border-color 160ms, background-color 160ms;
+}
+.mira-frame__h:nth-of-type(1) { left: -5px; top: -5px; }
+.mira-frame__h:nth-of-type(2) { right: -5px; top: -5px; }
+.mira-frame__h:nth-of-type(3) { left: -5px; bottom: -5px; }
+.mira-frame__h:nth-of-type(4) { right: -5px; bottom: -5px; }
+a.mira-frame__media:is(:hover, :focus-visible) .mira-frame__h { border-color: var(--ink); }
+.mira-frame[data-playing] .mira-frame__h { background: var(--ember); border-color: var(--ember); }
+.mira-frame__cap { font: 500 12px/1.5 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-muted); }
+.mira-frame__credit { color: var(--ink-faint); }
+.mira-frame__play {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  padding: 6px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-0);
+  color: var(--ink);
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.mira-frame__play:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.mira-frame__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--ember);
+  transform: scaleX(var(--p, 0));
+  transform-origin: left;
+}
+@keyframes mira-resolve { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mira-frame[data-loaded] img { animation: none; } }
+
+/* @component mira-btn */
+.mira-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-6);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: 500 15px/1 var(--font-text);
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 420ms var(--mira-spring), background-color 160ms, border-color 160ms, box-shadow 200ms;
+}
+.mira-btn[data-size="sm"] { height: 32px; padding: 0 var(--space-3); font-size: 13px; border-radius: var(--radius-sm); }
+.mira-btn, .mira-btn[data-variant="solid"] { background: var(--fill-ink); color: var(--on-fill-ink); }
+.mira-btn[data-variant="outline"] { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+.mira-btn[data-variant="accent"] { background: var(--ember); color: var(--on-warm); }
+.mira-btn:hover { transform: translateY(-2px); }
+.mira-btn[data-variant="outline"]:hover { border-color: var(--ink); }
+.mira-btn[data-variant="accent"]:hover { box-shadow: var(--glow-ember); }
+.mira-btn:active { transform: translateY(0) scale(0.98); }
+.mira-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .mira-btn { transition: background-color 120ms, border-color 120ms; }
+  .mira-btn:hover, .mira-btn:active { transform: none; }
+}
+
+/* @component mira-eyebrow */
+.mira-eyebrow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6em;
+  font: 500 12px/1.4 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.mira-eyebrow .dot { width: 6px; height: 6px; border-radius: var(--radius-px); background: var(--ember); box-shadow: 0 0 10px var(--ember); }
+
+/* @component mira-hl */
+.mira-hl {
+  position: relative;
+  display: inline-block;
+  padding: 0 0.14em;
+  border-radius: var(--radius-px);
+  background: var(--sun);
+  color: var(--on-warm);
+  line-height: 1.02;
+  /* Tight display leading lets descenders on the line above (g, p, y)
+     reach into this line; the margin opens just enough room that the
+     block never covers them. */
+  margin-top: 0.16em;
+}
+.mira-hl[data-tone="ember"] { background: var(--ember); }
+.mira-hl[data-tone="lime"] { background: var(--lime); }
+.mira-hl[data-tone="haze"] { background: var(--haze); }
+.mira-hl[data-tone="cobalt"] { background: var(--cobalt); color: var(--on-cool); }
+.mira-hl > i {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  background: var(--navy);
+  border: 1px solid var(--haze);
+  border-radius: var(--radius-px);
+}
+.mira-hl > i:nth-of-type(1) { left: -5px; top: -5px; }
+.mira-hl > i:nth-of-type(2) { right: -5px; top: -5px; }
+.mira-hl > i:nth-of-type(3) { left: -5px; bottom: -5px; }
+.mira-hl > i:nth-of-type(4) { right: -5px; bottom: -5px; }
+
+/* @component mira-cursor */
+.mira-cursor { display: inline-flex; align-items: flex-start; pointer-events: none; }
+.mira-cursor > svg { flex: 0 0 auto; width: 18px; fill: var(--ink); }
+.mira-cursor__tag {
+  margin: 16px 0 0 -3px;
+  padding: 4px 8px;
+  border-radius: var(--radius-px);
+  font: 500 12px/1 var(--font-text);
+  background: var(--cobalt);
+  color: var(--on-cool);
+  white-space: nowrap;
+}
+.mira-cursor[data-tone="ember"] .mira-cursor__tag { background: var(--ember); color: var(--on-warm); }
+.mira-cursor[data-tone="sun"] .mira-cursor__tag { background: var(--sun); color: var(--on-warm); }
+.mira-cursor[data-tone="lagoon"] .mira-cursor__tag { background: var(--lagoon); color: var(--on-warm); }
+.mira-cursor[data-tone="rose"] .mira-cursor__tag { background: var(--rose); color: var(--on-warm); }
+
+/* @component mira-atmo */
+.mira-atmo {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  min-height: 220px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--on-warm);
+}
+.mira-atmo__field { position: absolute; inset: -14%; z-index: -2; filter: blur(var(--blur-field)); }
+.mira-atmo__orb { position: absolute; border-radius: 50%; visibility: hidden; }
+.mira-atmo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--grain);
+  background-size: 220px 220px;
+  mix-blend-mode: overlay;
+  opacity: var(--grain-opacity);
+  pointer-events: none;
+}
+.mira-atmo__body { position: relative; padding: var(--space-6); }
+.mira-atmo[data-palette="sunset"] .mira-atmo__field {
+  background: linear-gradient(180deg, var(--ember) 0%, var(--ember) 8%, var(--sun) 20%, var(--peach) 36%, var(--rose) 52%, var(--ember) 63%, var(--ocean) 75%, var(--navy) 100%);
+}
+.mira-atmo[data-palette="sunset"] .mira-atmo__orb { visibility: visible; width: 54%; aspect-ratio: 1; left: 23%; top: 25%; background: var(--haze); filter: blur(10px); }
+.mira-atmo[data-palette="sky"] { color: var(--on-cool); }
+.mira-atmo[data-palette="sky"] .mira-atmo__field {
+  background:
+    radial-gradient(50% 40% at 30% 55%, var(--haze) 0%, transparent 72%),
+    radial-gradient(40% 34% at 78% 22%, var(--haze) 0%, transparent 72%),
+    radial-gradient(46% 40% at 80% 88%, var(--lilac) 0%, transparent 72%),
+    var(--ocean);
+}
+.mira-atmo[data-palette="cobalt"] { color: var(--on-cool); }
+.mira-atmo[data-palette="cobalt"] .mira-atmo__field {
+  background: radial-gradient(60% 50% at 18% 100%, var(--navy) 0%, transparent 70%), var(--cobalt);
+}
+.mira-atmo[data-palette="night"] { color: var(--ink); }
+.mira-atmo[data-palette="night"] .mira-atmo__field {
+  background:
+    radial-gradient(45% 40% at 85% 10%, color-mix(in oklab, var(--cobalt) 55%, transparent) 0%, transparent 72%),
+    radial-gradient(60% 40% at 50% 115%, color-mix(in oklab, var(--ember) 45%, transparent) 0%, transparent 72%),
+    var(--surface-0);
+}
+.mira-atmo[data-palette="meadow"] .mira-atmo__field {
+  background:
+    radial-gradient(34% 54% at 22% 30%, var(--lagoon) 0%, var(--lagoon) 35%, transparent 80%),
+    radial-gradient(34% 54% at 78% 30%, var(--lagoon) 0%, var(--lagoon) 35%, transparent 80%),
+    radial-gradient(40% 32% at 50% 64%, var(--lime) 0%, var(--lime) 40%, transparent 80%),
+    radial-gradient(70% 16% at 50% 14%, var(--sun) 0%, var(--sun) 45%, transparent 85%),
+    radial-gradient(60% 14% at 50% 92%, var(--sun) 0%, transparent 85%),
+    var(--haze);
+}
+
+/* @component mira-glass */
+.mira-glass {
+  position: relative;
+  width: var(--mira-size, 96px);
+  height: var(--mira-size, 96px);
+  background: linear-gradient(140deg, #ffffff 0%, var(--lilac) 55%, var(--haze) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 0 28px rgba(255, 255, 255, 0.55), 0 12px 40px rgba(4, 33, 95, 0.4);
+  backdrop-filter: blur(var(--blur-glass));
+}
+.mira-glass[data-shape="disc"] { border-radius: 50%; }
+.mira-glass[data-shape="tile"] { border-radius: var(--radius-lg); }
+.mira-glass[data-shape="ring"] {
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle closest-side, transparent 62%, #000 64%);
+  mask: radial-gradient(circle closest-side, transparent 62%, #000 64%);
+}
+.mira-glass[data-shape="plus"] { clip-path: polygon(33% 0, 67% 0, 67% 33%, 100% 33%, 100% 67%, 67% 67%, 67% 100%, 33% 100%, 33% 67%, 0 67%, 0 33%, 33% 33%); }
+.mira-glass[data-shape="steps"] { clip-path: polygon(0 100%, 0 66%, 34% 66%, 34% 33%, 67% 33%, 67% 0, 100% 0, 100% 100%); }
+.mira-glass[data-glow] { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 0 28px rgba(255, 255, 255, 0.55), var(--glow-cobalt); }
+
+/* @component mira-pixels */
+.mira-pixels { fill: currentColor; }
+.mira-pixels .off { opacity: 0.14; }
+
+/* @component mira-tabs */
+.mira-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+}
+.mira-tabs a {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  color: var(--ink-muted);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  text-decoration: none;
+  transition: color 160ms, background-color 160ms;
+}
+.mira-tabs a:hover { color: var(--ink); }
+.mira-tabs a[aria-current="page"] { background: var(--fill-ink); color: var(--on-fill-ink); }
+
+/* @component mira-card */
+.mira-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+  transition: transform 420ms var(--mira-spring), border-color 160ms;
+}
+a.mira-card:hover { transform: translateY(-2px); border-color: var(--line-strong); }
+.mira-card p { color: var(--ink-muted); font-size: var(--text-sm); }
+@media (prefers-reduced-motion: reduce) { a.mira-card:hover { transform: none; } }
+
+/* @component mira-code */
+.mira-code {
+  position: relative;
+  margin: 0;
+  padding: var(--space-4) var(--space-6);
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  font: 400 13px/1.7 var(--font-mono);
+  tab-size: 2;
+}
+.mira-code code { font: inherit; }
+.mira-code[data-lang]:not([data-lang=""])::before {
+  content: attr(data-lang);
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-3);
+  font: 500 11px/1.4 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.hl-comment { color: var(--ink-faint); font-style: italic; }
+.hl-string { color: light-dark(#0a6ab0, #f2a383); }
+.hl-constant { color: light-dark(#b8410f, #ff9a1f); }
+.hl-keyword, .hl-storage { color: light-dark(#04215f, #bbd7f2); }
+.hl-entity { color: light-dark(#6b3a7d, #d3c2dc); }
+.hl-support, .hl-meta.hl-tag .hl-entity { color: light-dark(#1d6b54, #c6e25a); }
+.hl-punctuation { color: var(--ink-muted); }
+.hl-invalid { color: var(--ember); }
+
+/* @component markdown-alert */
+.markdown-alert {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  padding: var(--space-4) var(--space-6);
+  color: var(--ink);
+}
+.markdown-alert > :first-child { margin-top: 0; }
+.markdown-alert::before {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: var(--space-2);
+  font: 500 12px/1.4 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  content: "Note";
+}
+.markdown-alert-tip::before { content: "Tip"; }
+.markdown-alert-important::before { content: "Important"; }
+.markdown-alert-warning::before { content: "Warning"; }
+.markdown-alert-caution::before { content: "Caution"; }
+.markdown-alert { box-shadow: inset 3px 0 var(--haze); }
+.markdown-alert-tip { box-shadow: inset 3px 0 var(--lagoon); }
+.markdown-alert-important { box-shadow: inset 3px 0 var(--lilac); }
+.markdown-alert-warning { box-shadow: inset 3px 0 var(--sun); }
+.markdown-alert-caution { box-shadow: inset 3px 0 var(--ember); }
+
+/* @component mira-search */
+mira-search { position: relative; display: block; min-width: 14rem; }
+mira-search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 36px 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--ink);
+  font: 400 14px/1 var(--font-text);
+}
+mira-search input::placeholder { color: var(--ink-faint); }
+mira-search input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+mira-search input::-webkit-search-cancel-button { display: none; }
+mira-search kbd {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-px);
+  font: 500 11px/1.4 var(--font-mono);
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+mira-search ol {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(32rem, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: var(--lift);
+}
+mira-search li a {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  text-decoration: none;
+}
+mira-search li a:is(:hover, :focus-visible) { background: var(--surface-2); outline: none; }
+mira-search li strong { font-weight: 600; font-size: 14px; }
+mira-search li span { color: var(--ink-muted); font-size: 13px; }
+mira-search mark { background: var(--sun); color: var(--on-warm); border-radius: var(--radius-px); padding: 0 1px; }
+mira-search .empty { padding: var(--space-3); color: var(--ink-muted); font-size: 14px; }

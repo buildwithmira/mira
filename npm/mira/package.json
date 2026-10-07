@@ -1,0 +1,23 @@
+{
+  "name": "@buildwithmira/mira",
+  "version": "0.1.0",
+  "description": "A static site framework for content sites.",
+  "license": "MIT OR Apache-2.0",
+  "author": "Om Rajguru <hi@omrajguru.in>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buildwithmira/mira.git",
+    "directory": "npm/mira"
+  },
+  "homepage": "https://github.com/buildwithmira/mira#readme",
+  "bugs": "https://github.com/buildwithmira/mira/issues",
+  "keywords": ["static-site-generator", "ssg", "markdown", "view-transitions", "cli"],
+  "bin": {
+    "mira": "bin/mira.js"
+  },
+  "files": ["bin"],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {}
+}

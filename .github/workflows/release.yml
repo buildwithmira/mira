@@ -1,0 +1,123 @@
+name: Release
+
+# Push a tag like v0.1.0 to build every binary, create the GitHub release,
+# and publish to npm. Run it by hand to build and check everything without
+# publishing.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, npm: linux-x64, run: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, npm: linux-arm64, run: true }
+          - { target: aarch64-apple-darwin, os: macos-latest, npm: darwin-arm64, run: true }
+          - { target: x86_64-apple-darwin, os: macos-latest, npm: darwin-x64, run: false }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, npm: win32-x64, run: true }
+          - { target: aarch64-pc-windows-msvc, os: windows-11-arm, npm: win32-arm64, run: true }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: contains(matrix.target, 'linux-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked -p mira --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
+          bin="target/${{ matrix.target }}/release/mira$ext"
+          if [[ "${{ matrix.run }}" == "true" ]]; then "$bin" --version; fi
+          mkdir -p out/npm out/archive/mira
+          cp "$bin" "out/npm/mira-${{ matrix.npm }}$ext"
+          cp "$bin" LICENSE-MIT LICENSE-APACHE README.md out/archive/mira/
+          cd out/archive
+          if [[ -n "$ext" ]]; then 7z a -bd "../mira-${{ matrix.target }}.zip" mira >/dev/null
+          else tar -czf "../mira-${{ matrix.target }}.tar.gz" mira; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mira-${{ matrix.target }}
+          path: |
+            out/npm/*
+            out/*.zip
+            out/*.tar.gz
+          if-no-files-found: error
+
+  github:
+    name: GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd artifacts
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+          prerelease=""; [[ "$TAG" == *-* || "$TAG" == v0.* ]] && prerelease="--prerelease"
+          gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes $prerelease *.tar.gz *.zip SHA256SUMS
+
+  npm:
+    name: npm
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Stage packages
+        run: |
+          tag=""; [[ "$GITHUB_REF" == refs/tags/v* ]] && tag="--tag $GITHUB_REF_NAME"
+          node npm/scripts/stage.mjs artifacts staged $tag > order.txt
+          cat order.txt
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          flags="--access public"
+          [[ "$PUBLISH" != "true" ]] && flags="$flags --dry-run"
+          [[ "$PRIVATE" != "true" ]] && flags="$flags --provenance"
+          version=$(node -p "require('./staged/mira/package.json').version")
+          [[ "$version" == *-* ]] && flags="$flags --tag next"
+          while read -r dir; do
+            name=$(node -p "require('./$dir/package.json').name")
+            if [[ "$PUBLISH" == "true" ]] && npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published"; continue
+            fi
+            (cd "$dir" && npm publish $flags)
+          done < order.txt
