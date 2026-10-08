@@ -61,4 +61,4 @@ The exit code is non zero, so scripts and agents can branch on it. See [Checks a
 
 ## Reading the site back
 
-An agent that changed a page can confirm the result as text with `mira mcp`'s `read_page`, or by reading the page's twin in `dist/`.
+An agent that changed a page can confirm the result as text with `mira mcp`'s `read` tool, or by reading the page's twin in `dist/`. `mira audit --agent` shows what each page costs an agent to read.

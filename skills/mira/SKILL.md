@@ -76,7 +76,7 @@ Declare a schema in `mira.config.json`, then add Markdown files to `content/<nam
 { "collections": { "posts": { "fields": { "title": "string", "date": "date", "tags": "string[]?" } } } }
 ```
 
-Types are `string`, `number`, `boolean`, `date` (`YYYY-MM-DD`), `url`, and `string[]`; end a type with `?` to make it optional. Unknown fields fail the build unless the schema sets `"strict": false`. Entries sort by `order`, then newest `date`. `draft: true` hides an entry from production builds.
+Types are `string`, `number`, `boolean`, `date` (`YYYY-MM-DD`), `time` (`HH:MM`), `datetime`, `url`, `object`, `string[]`, `number[]`, and `object[]`; end a type with `?` to make it optional. Declare prices, dates, and times with their real types: agents query collections by them over MCP. Unknown fields fail the build unless the schema sets `"strict": false`. Entries sort by `order`, then newest `date`. `draft: true` hides an entry from production builds.
 
 ## Markdown
 
@@ -124,7 +124,9 @@ Every Mira site can be read over MCP: pages as Markdown, search, collection entr
 { "mcpServers": { "site": { "command": "npx", "args": ["-y", "@miraframework/mira", "mcp", "--url", "https://example.com"] } } }
 ```
 
-Use `--root <dir>` instead of `--url` for a project on disk. Tools: `site_info`, `list_pages`, `read_page`, `search`, `list_entries`, `read_data`, `list_media`. Reading a deployed site with `--url` needs Mira 0.1.3 or later.
+Use `--root <dir>` instead of `--url` for a project on disk. Tools: `site`, `pages`, `search`, `read` (a page, or one section with `path#section`), `items` (query a collection by field), `data`, and `media`. Reading a deployed site with `--url` needs Mira 0.2.0 or later.
+
+Run `mira audit --agent` after changing content to see what each page costs an agent to read; split pages over 1,000 tokens with `##` headings.
 
 ## References
 

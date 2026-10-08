@@ -1,3 +1,4 @@
+mod audit;
 mod dev;
 mod diagnostic;
 mod mcp;
@@ -72,11 +73,29 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Report what the site costs agents to read.
+    ///
+    /// With --agent, lists each page's Markdown, search index entry, and
+    /// largest section in approximate tokens, and flags pages over a budget.
+    Audit {
+        /// Project root.
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+        /// Audit the site as agents read it.
+        #[arg(long, required = true)]
+        agent: bool,
+        /// Tokens a page may use before it is flagged.
+        #[arg(long, default_value_t = 1000)]
+        budget: usize,
+        /// Print a machine readable report instead of the summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Serve a site's pages, content, data, and media over MCP on standard
     /// input and output.
     ///
-    /// Reads the project in --root, rebuilt before each answer, or with --url
-    /// any deployed Mira site, from the files every build publishes.
+    /// Reads the project in --root, rebuilt when its files change, or with
+    /// --url any deployed Mira site, from the files every build publishes.
     Mcp {
         /// Project root.
         #[arg(long, default_value = ".")]
@@ -91,7 +110,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let (root, json) = match &cli.command {
         Command::New { dir, .. } => (dir.clone(), false),
-        Command::Build { root, json, .. } => (root.clone(), *json),
+        Command::Build { root, json, .. } | Command::Audit { root, json, .. } => (root.clone(), *json),
         Command::Migrate { dest, json, .. } => (dest.clone(), *json),
         Command::Dev { root, .. } | Command::Mcp { root, .. } => (root.clone(), false),
     };
@@ -100,6 +119,7 @@ fn main() -> ExitCode {
         Command::Build { root, out, json, timings } => run_build(&root, &out, json, timings),
         Command::Migrate { source, dest, from, dry_run, json } => run_migrate(source, dest, from.as_deref(), dry_run, json),
         Command::Dev { root, port } => dev::run(&root, port),
+        Command::Audit { root, budget, json, .. } => audit::run(&root, budget.max(1), json),
         Command::Mcp { root, url } => match url {
             Some(url) => mcp::Source::site(&url).and_then(mcp::run),
             None => mcp::Source::project(&root).and_then(mcp::run),

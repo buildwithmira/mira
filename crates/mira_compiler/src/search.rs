@@ -64,15 +64,24 @@ pub fn plain_text(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 2);
     let mut rest = html;
     let mut skip: Option<&str> = None;
+    // A span closed flush against a word; the next word gets a space.
+    let mut after_span = false;
+    let push = |out: &mut String, text: &str, after_span: &mut bool| {
+        let text = decode_entities(text);
+        if std::mem::take(after_span) && text.starts_with(char::is_alphanumeric) {
+            out.push(' ');
+        }
+        out.push_str(&text);
+    };
     while !rest.is_empty() {
         let Some(lt) = rest.find('<') else {
             if skip.is_none() {
-                out.push_str(&decode_entities(rest));
+                push(&mut out, rest, &mut after_span);
             }
             break;
         };
-        if skip.is_none() {
-            out.push_str(&decode_entities(&rest[..lt]));
+        if skip.is_none() && lt > 0 {
+            push(&mut out, &rest[..lt], &mut after_span);
         }
         rest = &rest[lt..];
         let end = rest.find('>').map_or(rest.len(), |e| e + 1);
@@ -90,7 +99,31 @@ pub fn plain_text(html: &str) -> String {
             }
             _ => {}
         }
-        out.push(' ');
+        // Inline tags join words; block tags and line breaks separate them.
+        let inline = matches!(
+            name.to_ascii_lowercase().as_str(),
+            "a" | "span"
+                | "code"
+                | "em"
+                | "strong"
+                | "b"
+                | "i"
+                | "s"
+                | "u"
+                | "small"
+                | "mark"
+                | "abbr"
+                | "time"
+                | "sub"
+                | "sup"
+                | "kbd"
+                | "q"
+        );
+        if !inline {
+            out.push(' ');
+        } else if tag.starts_with('/') && name.eq_ignore_ascii_case("span") && out.ends_with(char::is_alphanumeric) {
+            after_span = true;
+        }
         rest = &rest[end..];
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -102,10 +135,10 @@ mod tests {
 
     #[test]
     fn indexes_main_content() {
-        let html = r#"<nav>Menu</nav><main><h1>Docs</h1><h2 id="install">Install &amp; run</h2><p>Run <code>mira new</code>.</p><svg><text>x</text></svg></main>"#;
+        let html = r#"<nav>Menu</nav><main><h1>Docs</h1><h2 id="install">Install &amp; run</h2><p>Run <code>mira new</code>.</p><p><span>Vercel</span><span>vercel.json</span></p><svg><text>x</text></svg></main>"#;
         let d = doc("/docs/", "Docs", None, html);
         assert_eq!(d.headings[0].id, "install");
         assert_eq!(d.headings[0].text, "Install & run");
-        assert_eq!(d.text, "Docs Install & run Run mira new .");
+        assert_eq!(d.text, "Docs Install & run Run mira new. Vercel vercel.json");
     }
 }

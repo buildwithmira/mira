@@ -1,40 +1,69 @@
 //! `mira mcp`: a Model Context Protocol server over stdio that gives agents
 //! every part of a Mira site: its pages as Markdown, search, collection
-//! entries with their fields, data files, and media.
+//! entries with typed fields, data files, and media.
 //!
-//! It reads a local project, rebuilt before each call so answers match the
-//! source, or, with `--url`, any deployed Mira site through the files every
-//! build publishes under `/_mira/`. Both modes answer the same way.
+//! It reads a local project, rebuilt only when its files change, or, with
+//! `--url`, any deployed Mira site through the files every build publishes
+//! under `/_mira/`. Both modes answer the same way.
+//!
+//! Answers are kept small because every byte is an agent's token: search
+//! returns a few short matches that point at sections, `read` can return a
+//! single section, and `items` filters a collection by its fields before
+//! anything is sent.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::rc::Rc;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Result, anyhow, bail};
 use mira_compiler::{BuildOptions, build};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 const PROTOCOL: &str = "2025-06-18";
 /// The largest file the server reads, from disk or the network.
 const MAX_BYTES: u64 = 16 * 1024 * 1024;
-/// How long a deployed site's indexes are reused before fetching again.
+/// How long a deployed site's files are reused before fetching again.
 const FRESH: Duration = Duration::from_secs(30);
+/// Characters `read` returns when the caller sets no `max_chars`.
+const READ_CHARS: usize = 24_000;
+/// Characters per search snippet.
+const SNIPPET: usize = 160;
 
 /// Where a site's files come from.
-pub enum Source {
-    /// A project on disk, rebuilt into `.mira/mcp` before each call.
+enum Origin {
+    /// A project on disk, built into `.mira/mcp`.
     Project { root: PathBuf, out: PathBuf },
     /// A deployed site, read over HTTPS.
-    Site { base: String, agent: ureq::Agent, cache: RefCell<HashMap<String, (Instant, Option<String>)>> },
+    Site { base: String, agent: ureq::Agent },
+}
+
+/// A file's contents, or `None` for a 404, and when it was read.
+type Fetched = (Instant, Option<Rc<str>>);
+
+/// A site and what has been read from it. One server lives for the whole
+/// MCP session, so the site is built or fetched once and reused.
+pub struct Source {
+    origin: Origin,
+    /// Files by path, with when they were read. `None` records a 404.
+    files: RefCell<HashMap<String, Fetched>>,
+    /// Parsed JSON files by path, dropped with `files`.
+    parsed: RefCell<HashMap<String, Rc<Value>>>,
+    /// The project's file stamp at the last build.
+    stamp: RefCell<Option<u64>>,
 }
 
 impl Source {
+    fn new(origin: Origin) -> Source {
+        Source { origin, files: RefCell::default(), parsed: RefCell::default(), stamp: RefCell::default() }
+    }
+
     pub fn project(root: &Path) -> Result<Source> {
         let root = std::path::absolute(root)?;
         let out = root.join(".mira").join("mcp");
-        Ok(Source::Project { root, out })
+        Ok(Source::new(Origin::Project { root, out }))
     }
 
     /// A deployed Mira site at `url`, such as `https://example.com` or a
@@ -48,30 +77,55 @@ impl Source {
             .user_agent(concat!("mira-mcp/", env!("CARGO_PKG_VERSION")))
             .tls_config(tls())
             .build();
-        Ok(Source::Site { base, agent: config.into(), cache: RefCell::new(HashMap::new()) })
+        Ok(Source::new(Origin::Site { base, agent: config.into() }))
     }
 
     fn describe(&self) -> String {
-        match self {
-            Source::Project { root, .. } => root.display().to_string(),
-            Source::Site { base, .. } => base.clone(),
+        match &self.origin {
+            Origin::Project { root, .. } => root.display().to_string(),
+            Origin::Site { base, .. } => base.clone(),
         }
     }
 
-    /// Brings a project's output up to date. A deployed site is already built.
+    /// Rebuilds a project when any of its files changed since the last
+    /// build, and drops what was read from the old output. A deployed site
+    /// is already built; its files expire on their own.
     fn refresh(&self) -> Result<()> {
-        if let Source::Project { root, out } = self {
-            build(&BuildOptions { root: root.clone(), out: out.clone(), dev: false, host_config: false })?;
+        let Origin::Project { root, out } = &self.origin else { return Ok(()) };
+        let stamp = project_stamp(root);
+        if *self.stamp.borrow() == Some(stamp) {
+            return Ok(());
         }
+        self.files.borrow_mut().clear();
+        self.parsed.borrow_mut().clear();
+        *self.stamp.borrow_mut() = None;
+        build(&BuildOptions { root: root.clone(), out: out.clone(), dev: false, host_config: false })?;
+        *self.stamp.borrow_mut() = Some(stamp);
         Ok(())
     }
 
     /// Reads a file the build publishes, such as `/_mira/search.json`.
     /// `None` means the site has no such file.
-    fn get(&self, path: &str) -> Result<Option<String>> {
+    fn get(&self, path: &str) -> Result<Option<Rc<str>>> {
         debug_assert!(path.starts_with('/'));
-        match self {
-            Source::Project { out, .. } => {
+        if let Some((at, body)) = self.files.borrow().get(path) {
+            let fresh = match self.origin {
+                Origin::Project { .. } => true,
+                Origin::Site { .. } => at.elapsed() < FRESH,
+            };
+            if fresh {
+                return Ok(body.clone());
+            }
+        }
+        self.parsed.borrow_mut().remove(path);
+        let body = self.fetch(path)?.map(Rc::from);
+        self.files.borrow_mut().insert(path.to_string(), (Instant::now(), body.clone()));
+        Ok(body)
+    }
+
+    fn fetch(&self, path: &str) -> Result<Option<String>> {
+        match &self.origin {
+            Origin::Project { out, .. } => {
                 let file = path.trim_start_matches('/').split('/').fold(out.clone(), |p, part| p.join(part));
                 match std::fs::metadata(&file) {
                     Ok(meta) if meta.is_file() => {
@@ -83,18 +137,11 @@ impl Source {
                     _ => Ok(None),
                 }
             }
-            Source::Site { base, agent, cache } => {
-                let reuse = path.starts_with("/_mira/") || path == "/media.json";
-                if reuse
-                    && let Some((at, body)) = cache.borrow().get(path)
-                    && at.elapsed() < FRESH
-                {
-                    return Ok(body.clone());
-                }
+            Origin::Site { base, agent } => {
                 let url = format!("{base}{path}");
                 let mut response = agent.get(&url).call().map_err(|e| anyhow!("could not reach {url}: {e}"))?;
                 let status = response.status().as_u16();
-                let body = match status {
+                match status {
                     200..=299 => {
                         let mut text = String::new();
                         response
@@ -106,31 +153,31 @@ impl Source {
                         if text.len() as u64 > MAX_BYTES {
                             bail!("{url} is larger than {} MB", MAX_BYTES / 1024 / 1024);
                         }
-                        Some(text)
+                        Ok(Some(text))
                     }
-                    404 | 410 => None,
+                    404 | 410 => Ok(None),
                     300..=399 => bail!("{url} redirected; pass the site's final address to --url"),
                     _ => bail!("{url} returned HTTP {status}"),
-                };
-                if reuse {
-                    cache.borrow_mut().insert(path.to_string(), (Instant::now(), body.clone()));
                 }
-                Ok(body)
             }
         }
     }
 
-    fn json(&self, path: &str) -> Result<Option<Value>> {
-        match self.get(path)? {
-            Some(text) => Ok(Some(serde_json::from_str(&text).map_err(|e| anyhow!("{path} is not valid JSON: {e}"))?)),
-            None => Ok(None),
+    /// A JSON file, parsed once and reused until the file is read again.
+    fn json(&self, path: &str) -> Result<Option<Rc<Value>>> {
+        let Some(text) = self.get(path)? else { return Ok(None) };
+        if let Some(value) = self.parsed.borrow().get(path) {
+            return Ok(Some(value.clone()));
         }
+        let value: Rc<Value> = Rc::new(serde_json::from_str(&text).map_err(|e| anyhow!("{path} is not valid JSON: {e}"))?);
+        self.parsed.borrow_mut().insert(path.to_string(), value.clone());
+        Ok(Some(value))
     }
 
     /// Every page, from the search index every Mira build writes.
-    fn pages(&self) -> Result<Vec<Value>> {
+    fn pages(&self) -> Result<Rc<Value>> {
         match self.json("/_mira/search.json")? {
-            Some(Value::Array(pages)) => Ok(pages),
+            Some(pages) if pages.is_array() => Ok(pages),
             Some(_) => bail!("/_mira/search.json is not a list of pages"),
             None => bail!("{} has no /_mira/search.json, so it is not a Mira site or was built without its agent files", self.describe()),
         }
@@ -140,10 +187,38 @@ impl Source {
     /// the content index existed still answer, from their pages alone.
     fn content(&self) -> Result<Value> {
         match self.json("/_mira/content.json")? {
-            Some(index) => Ok(index),
-            None => Ok(json!({ "site": {}, "pages": "/_mira/search.json", "collections": [], "data": [] })),
+            Some(index) => Ok((*index).clone()),
+            None => Ok(json!({ "site": {}, "collections": [], "data": [] })),
         }
     }
+}
+
+/// A cheap fingerprint of a project's source files: their paths, sizes, and
+/// modification times. Output, dependency, and hidden folders are skipped.
+fn project_stamp(root: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let skip = |name: &str| name.starts_with('.') || matches!(name, "dist" | "node_modules" | "target");
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(items) = std::fs::read_dir(&dir) else { continue };
+        let mut items: Vec<_> = items.filter_map(Result::ok).collect();
+        items.sort_by_key(|i| i.file_name());
+        for item in items {
+            if skip(&item.file_name().to_string_lossy()) {
+                continue;
+            }
+            let Ok(meta) = item.metadata() else { continue };
+            if meta.is_dir() {
+                stack.push(item.path());
+                continue;
+            }
+            item.path().hash(&mut hasher);
+            meta.len().hash(&mut hasher);
+            meta.modified().ok().and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok()).hash(&mut hasher);
+        }
+    }
+    hasher.finish()
 }
 
 /// Windows and macOS use the system TLS library and trust store; elsewhere,
@@ -197,7 +272,7 @@ pub fn run(source: Source) -> Result<()> {
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "mira", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": format!(
-                    "Read the Mira site at {}. Start with site_info to see its collections and data, use list_pages or search to find pages, read_page for a page's Markdown, list_entries for a collection's entries and fields, read_data for a data file, and list_media for images and video.",
+                    "The Mira site at {}. search returns paths with #sections; read one with read. items queries collections by field.",
                     source.describe()
                 )
             })),
@@ -221,67 +296,45 @@ fn write(out: &mut impl Write, value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn tools() -> Value {
-    let none = json!({ "type": "object", "properties": {} });
-    json!([
-        {
-            "name": "site_info",
-            "description": "Describe the site: its title, description, and URL, and every content collection (with entry counts and field types) and data file it publishes. Call this first.",
-            "inputSchema": none
-        },
-        {
-            "name": "list_pages",
-            "description": "List every page on the site with its URL, title, and description.",
-            "inputSchema": none
-        },
-        {
-            "name": "read_page",
-            "description": "Read one page as Markdown, with frontmatter giving its title and canonical URL.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "url": { "type": "string", "description": "A page path such as / or /docs/install/" } },
-                "required": ["url"]
-            }
-        },
-        {
-            "name": "search",
-            "description": "Search the site's pages. Returns the best matches with URLs and a snippet.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string" },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 25 }
-                },
-                "required": ["query"]
-            }
-        },
-        {
-            "name": "list_entries",
-            "description": "List a content collection's entries with all their fields, such as date, tags, and author, plus each entry's URL. Use read_page on a URL for the entry's full text.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "collection": { "type": "string", "description": "A collection name from site_info" },
-                    "offset": { "type": "integer", "minimum": 0 },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
-                },
-                "required": ["collection"]
-            }
-        },
-        {
-            "name": "read_data",
-            "description": "Read one of the site's data files, such as navigation or a team list, as JSON.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "name": { "type": "string", "description": "A data file name from site_info" } },
-                "required": ["name"]
-            }
-        },
-        {
-            "name": "list_media",
-            "description": "List the site's images and videos with their alt text, captions, sizes, and file URLs.",
-            "inputSchema": none
+/// The tools, described in as few words as an agent needs to use them.
+/// Parameters are `name:type`, with `*` marking required ones.
+pub fn tools() -> Value {
+    let tool = |name: &str, description: &str, params: &[&str]| {
+        let mut properties = Map::new();
+        let mut required = Vec::new();
+        for param in params {
+            let (key, kind) = param.split_once(':').unwrap_or((param, "string"));
+            let key = match key.strip_suffix('*') {
+                Some(key) => {
+                    required.push(key);
+                    key
+                }
+                None => key,
+            };
+            let schema = match kind {
+                "string[]" => json!({ "type": "array", "items": { "type": "string" } }),
+                kind => json!({ "type": kind }),
+            };
+            properties.insert(key.to_string(), schema);
         }
+        let mut schema = json!({ "type": "object", "properties": properties });
+        if !required.is_empty() {
+            schema["required"] = json!(required);
+        }
+        json!({ "name": name, "description": description, "inputSchema": schema })
+    };
+    json!([
+        tool("site", "Overview: collections with field types, data files. Call first.", &[]),
+        tool("pages", "Pages as path | title | description. prefix filters, e.g. /docs/.", &["prefix"]),
+        tool("search", "Best matches as score path#section title, then a snippet. limit defaults to 5.", &["query*", "limit:integer"]),
+        tool("read", "A page as Markdown. Use path#section to read one section.", &["path*", "section", "max_chars:integer"]),
+        tool(
+            "items",
+            "Query a collection. where {field: value} or {field: {gt|gte|lt|lte|ne|contains|in: value}}; sort field or -field; limit defaults to 20.",
+            &["collection*", "where:object", "fields:string[]", "sort", "limit:integer", "offset:integer"]
+        ),
+        tool("data", "A data file as JSON. path picks one value, e.g. hours.monday.", &["name*", "path"]),
+        tool("media", "Images and video with alt text, captions, and sizes. page filters by path.", &["page"]),
     ])
 }
 
@@ -289,55 +342,90 @@ fn call(source: &Source, params: &Value) -> Value {
     let result = (|| -> Result<String> {
         source.refresh()?;
         let args = &params["arguments"];
+        let text = |key: &str| args[key].as_str().unwrap_or("");
+        let number = |key: &str| args[key].as_u64().map(|n| n.min(1 << 24) as usize);
         match params["name"].as_str().unwrap_or("") {
-            "site_info" => {
+            "site" => {
                 let mut info = source.content()?;
-                info["page_count"] = json!(source.pages()?.len());
-                Ok(serde_json::to_string_pretty(&info)?)
+                let count = source.pages()?.as_array().map_or(0, Vec::len);
+                if let Some(map) = info.as_object_mut() {
+                    for key in ["schema", "generator", "pages"] {
+                        map.remove(key);
+                    }
+                    map.insert("page_count".into(), json!(count));
+                }
+                Ok(info.to_string())
             }
-            "list_pages" => {
-                let pages: Vec<Value> = source
-                    .pages()?
-                    .iter()
-                    .map(|d| json!({ "url": d["url"], "title": d["title"], "description": d["description"] }))
-                    .collect();
-                Ok(serde_json::to_string_pretty(&pages)?)
+            "pages" => {
+                let prefix = text("prefix");
+                let mut out = String::new();
+                for page in source.pages()?.as_array().into_iter().flatten() {
+                    let url = page["url"].as_str().unwrap_or("");
+                    if !url.starts_with(prefix) {
+                        continue;
+                    }
+                    out.push_str(&format!("{url} | {}", page["title"].as_str().unwrap_or("")));
+                    if let Some(d) = page["description"].as_str() {
+                        out.push_str(&format!(" | {d}"));
+                    }
+                    out.push('\n');
+                }
+                if out.is_empty() {
+                    bail!("no pages start with {prefix}");
+                }
+                Ok(out)
             }
-            "read_page" => {
-                let url = args["url"].as_str().unwrap_or("/");
-                let missing = || anyhow!("no page at {url}; call list_pages to see every URL");
-                let path = twin_path(url).ok_or_else(missing)?;
-                source.get(&path)?.ok_or_else(missing)
+            "read" => {
+                let (path, anchor) = split_anchor(text("path"));
+                let missing = || anyhow!("no page at {path}; call pages or search to find one");
+                let file = twin_path(path).ok_or_else(missing)?;
+                let page = source.get(&file)?.ok_or_else(missing)?;
+                let section = Some(text("section")).filter(|s| !s.is_empty()).or(anchor);
+                read(&page, path, section, number("max_chars").unwrap_or(READ_CHARS).max(200))
             }
             "search" => {
-                let query = args["query"].as_str().unwrap_or("");
-                let limit = args["limit"].as_u64().unwrap_or(8).clamp(1, 25) as usize;
-                Ok(serde_json::to_string_pretty(&search(&source.pages()?, query, limit))?)
+                let limit = number("limit").unwrap_or(5).clamp(1, 20);
+                let hits = search(source.pages()?.as_array().map_or(&[][..], Vec::as_slice), text("query"), limit);
+                if hits.is_empty() {
+                    return Ok(format!("no pages match \"{}\"", text("query")));
+                }
+                Ok(hits.join("\n"))
             }
-            "list_entries" => {
-                let name = args["collection"].as_str().unwrap_or("");
-                let unknown = || anyhow!("no collection named \"{name}\"; call site_info to see the collections");
+            "items" => {
+                let name = text("collection");
+                let unknown = || anyhow!("no collection named \"{name}\"; call site to see the collections");
                 if !is_name(name) {
                     return Err(unknown());
                 }
-                let Some(Value::Array(entries)) = source.json(&format!("/_mira/collections/{name}.json"))? else {
-                    return Err(unknown());
-                };
-                let offset = args["offset"].as_u64().unwrap_or(0) as usize;
-                let limit = args["limit"].as_u64().unwrap_or(50).clamp(1, 200) as usize;
-                let page: Vec<&Value> = entries.iter().skip(offset).take(limit).collect();
-                Ok(serde_json::to_string_pretty(&json!({ "collection": name, "total": entries.len(), "offset": offset, "entries": page }))?)
+                let entries = source.json(&format!("/_mira/collections/{name}.json"))?.ok_or_else(unknown)?;
+                let query = Query::parse(args)?;
+                Ok(query.run(entries.as_array().map_or(&[][..], Vec::as_slice)).to_string())
             }
-            "read_data" => {
-                let name = args["name"].as_str().unwrap_or("");
-                let unknown = || anyhow!("no data file named \"{name}\"; call site_info to see the data files");
+            "data" => {
+                let name = text("name");
+                let unknown = || anyhow!("no data file named \"{name}\"; call site to see the data files");
                 if !is_name(name) {
                     return Err(unknown());
                 }
                 let data = source.json(&format!("/_mira/data/{name}.json"))?.ok_or_else(unknown)?;
-                Ok(serde_json::to_string_pretty(&data)?)
+                let path = text("path");
+                if path.is_empty() {
+                    return Ok(data.to_string());
+                }
+                lookup(&data, path).map(Value::to_string).ok_or_else(|| anyhow!("{name} has nothing at {path}"))
             }
-            "list_media" => Ok(serde_json::to_string_pretty(&source.json("/media.json")?.unwrap_or_else(|| json!([])))?),
+            "media" => {
+                let media = source.json("/media.json")?;
+                let page = text("page");
+                let items: Vec<&Value> = media
+                    .as_deref()
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|m| page.is_empty() || m["pages"].as_array().is_some_and(|p| p.iter().any(|u| u == page)))
+                    .collect();
+                Ok(serde_json::to_string(&items)?)
+            }
             other => bail!("unknown tool {other}"),
         }
     })();
@@ -350,6 +438,20 @@ fn call(source: &Source, params: &Value) -> Value {
 /// Collection and data file names: letters, digits, `-`, and `_`.
 fn is_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= 100 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// `/docs/a/#install` → (`/docs/a/`, `Some("install")`). Accepts a full URL
+/// too, keeping only its path.
+fn split_anchor(raw: &str) -> (&str, Option<&str>) {
+    let raw = match raw.split_once("://") {
+        Some((_, rest)) => rest.find('/').map_or("/", |i| &rest[i..]),
+        None => raw,
+    };
+    let (path, anchor) = match raw.split_once('#') {
+        Some((p, a)) => (p, Some(a).filter(|a| !a.is_empty())),
+        None => (raw, None),
+    };
+    (path.split('?').next().unwrap_or(""), anchor)
 }
 
 /// Maps `/docs/install/` to `/docs/install.md` and `/` to `/index.md`.
@@ -374,46 +476,346 @@ fn twin_path(url: &str) -> Option<String> {
     }
 }
 
-fn search(index: &[Value], query: &str, limit: usize) -> Vec<Value> {
-    let terms: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_string).collect();
+/// A heading in a Markdown page: its level, text, id, and the byte range of
+/// the section it opens, up to the next heading at the same or a higher level.
+struct Section<'a> {
+    level: usize,
+    text: &'a str,
+    id: String,
+    start: usize,
+    end: usize,
+}
+
+/// Headings outside fenced code, with ids made the way the compiler makes
+/// them, so `#id` links from search and from the page itself resolve.
+fn sections(body: &str) -> Vec<Section<'_>> {
+    let mut found: Vec<Section> = Vec::new();
+    let mut used = HashMap::<String, usize>::new();
+    let mut fenced = false;
+    let mut at = 0;
+    for line in body.split_inclusive('\n') {
+        let trimmed = line.trim_end();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            fenced = !fenced;
+        }
+        let level = trimmed.bytes().take_while(|b| *b == b'#').count();
+        if !fenced && (1..=6).contains(&level) && trimmed[level..].starts_with(' ') {
+            let text = trimmed[level..].trim();
+            let (text, id) = match text.rsplit_once(" {#") {
+                Some((t, id)) if id.ends_with('}') => (t.trim(), id.trim_end_matches('}').to_string()),
+                _ => {
+                    let mut id = mira_compiler::content::slugify(text);
+                    let n = used.entry(id.clone()).or_insert(0);
+                    *n += 1;
+                    if *n > 1 {
+                        id = format!("{id}-{}", *n - 1);
+                    }
+                    (text, id)
+                }
+            };
+            found.push(Section { level, text, id, start: at, end: body.len() });
+        }
+        at += line.len();
+    }
+    for i in 0..found.len() {
+        let level = found[i].level;
+        if let Some(next) = found[i + 1..].iter().find(|s| s.level <= level) {
+            found[i].end = next.start;
+        }
+    }
+    found
+}
+
+/// A page's Markdown without its frontmatter, or one section of it, cut to
+/// `max` characters on a line break. A cut page lists its later sections,
+/// so the agent can read the rest a part at a time.
+fn read(page: &str, path: &str, section: Option<&str>, max: usize) -> Result<String> {
+    let body = strip_frontmatter(page).trim();
+    let all = sections(body);
+    let text = match section {
+        None => body,
+        Some(wanted) => {
+            let key = wanted.trim().trim_start_matches('#').to_lowercase();
+            let slug = mira_compiler::content::slugify(&key);
+            let found = all
+                .iter()
+                .find(|s| s.id == key || s.id == slug || s.text.to_lowercase() == key)
+                .or_else(|| all.iter().find(|s| s.level > 1 && (s.id.contains(&slug) || s.text.to_lowercase().contains(&key))));
+            match found {
+                Some(s) => body[s.start..s.end].trim(),
+                None => {
+                    let ids: Vec<&str> = all.iter().filter(|s| s.level > 1).map(|s| s.id.as_str()).collect();
+                    bail!("no section \"{wanted}\" on {path}; sections: {}", if ids.is_empty() { "none".into() } else { ids.join(", ") });
+                }
+            }
+        }
+    };
+    if text.chars().count() <= max {
+        return Ok(text.to_string());
+    }
+    let offset = text.as_ptr() as usize - body.as_ptr() as usize;
+    let cut = text.char_indices().nth(max).map_or(text.len(), |(i, _)| i);
+    let cut = text[..cut].rfind('\n').filter(|&i| i > cut / 2).unwrap_or(cut);
+    let rest = text[cut..].chars().count();
+    let later: Vec<&str> =
+        all.iter().filter(|s| s.level > 1 && s.start >= offset + cut && s.start < offset + text.len()).map(|s| s.id.as_str()).collect();
+    let mut out = format!("{}\n\n[{rest} more characters", text[..cut].trim_end());
+    if !later.is_empty() {
+        out.push_str(&format!(". Read a section with path#id: {}", later.join(", ")));
+    }
+    out.push(']');
+    Ok(out)
+}
+
+fn strip_frontmatter(page: &str) -> &str {
+    page.strip_prefix("---\n").and_then(|rest| rest.find("\n---\n").map(|i| &rest[i + 5..])).unwrap_or(page)
+}
+
+/// Lowercased query terms, with a plural `s` dropped so `hours` finds `hour`.
+fn terms(query: &str) -> Vec<String> {
+    query
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(|t| if t.len() > 3 && t.ends_with('s') && !t.ends_with("ss") { t[..t.len() - 1].to_string() } else { t.to_string() })
+        .collect()
+}
+
+/// Ranks pages by where the terms appear: title, then headings, then the
+/// description, then the text. Pages matching the most terms are the only
+/// ones returned. Each hit names the heading that matches best, so the
+/// agent can read only that section.
+fn search(index: &[Value], query: &str, limit: usize) -> Vec<String> {
+    let terms = terms(query);
+    if terms.is_empty() {
+        return Vec::new();
+    }
     let field = |d: &Value, k: &str| d[k].as_str().unwrap_or("").to_lowercase();
-    let mut hits: Vec<(u32, Value)> = index
+    let mut hits: Vec<(usize, u32, String)> = index
         .iter()
         .filter_map(|d| {
             let (title, desc, text) = (field(d, "title"), field(d, "description"), field(d, "text"));
-            let headings: Vec<String> = d["headings"]
-                .as_array()
-                .map_or(Vec::new(), |h| h.iter().map(|x| x["text"].as_str().unwrap_or("").to_lowercase()).collect());
-            let mut total = 0;
+            let headings: Vec<(String, &str, &str)> = d["headings"].as_array().map_or(Vec::new(), |h| {
+                h.iter()
+                    .map(|x| {
+                        let shown = x["text"].as_str().unwrap_or("");
+                        (shown.to_lowercase(), x["id"].as_str().unwrap_or(""), shown)
+                    })
+                    .collect()
+            });
+            let (mut score, mut matched) = (0, 0);
             for term in &terms {
-                let mut s = 0;
-                if title.contains(term.as_str()) {
-                    s += 10;
+                let t = term.as_str();
+                let weights =
+                    [(title.contains(t), 10), (headings.iter().any(|h| h.0.contains(t)), 6), (desc.contains(t), 3), (text.contains(t), 1)];
+                let s: u32 = weights.iter().filter(|(hit, _)| *hit).map(|(_, w)| w).sum();
+                if s > 0 {
+                    matched += 1;
+                    score += s;
                 }
-                if headings.iter().any(|h| h.contains(term.as_str())) {
-                    s += 6;
-                }
-                if desc.contains(term.as_str()) {
-                    s += 3;
-                }
-                if text.contains(term.as_str()) {
-                    s += 1;
-                }
-                if s == 0 {
-                    return None;
-                }
-                total += s;
             }
-            let at = terms.first().and_then(|t| text.find(t.as_str())).unwrap_or(0);
+            if matched == 0 {
+                return None;
+            }
+            // A heading is worth pointing at only for terms the title lacks.
+            let beyond_title: Vec<&String> = terms.iter().filter(|t| !title.contains(t.as_str())).collect();
+            let best = headings
+                .iter()
+                .map(|h| (beyond_title.iter().filter(|t| h.0.contains(t.as_str())).count(), h))
+                .filter(|(n, _)| *n > 0)
+                .max_by_key(|(n, _)| *n)
+                .map(|(_, h)| h);
+            let url = d["url"].as_str().unwrap_or("");
+            let title = d["title"].as_str().unwrap_or("");
+            let (target, label) = match best {
+                Some((_, id, heading)) => (format!("{url}#{id}"), format!("{title} › {heading}")),
+                None => (url.to_string(), title.to_string()),
+            };
             let raw = d["text"].as_str().unwrap_or("");
-            let start = (0..=at.saturating_sub(60)).rev().find(|&i| raw.is_char_boundary(i)).unwrap_or(0);
-            let end = (start + 200).min(raw.len());
-            let end = (end..=raw.len()).find(|&i| raw.is_char_boundary(i)).unwrap_or(raw.len());
-            Some((total, json!({ "url": d["url"], "title": d["title"], "snippet": &raw[start..end] })))
+            // The text opens with the title; a match there says nothing the
+            // title does not, so the description stands in for it.
+            let lower_title = title.to_lowercase();
+            let skip = text.find(lower_title.as_str()).map_or(0, |i| i + lower_title.len());
+            let found = terms.iter().filter_map(|t| text[skip..].find(t.as_str()).map(|i| i + skip)).min();
+            let snippet = match (found, d["description"].as_str()) {
+                (None, Some(description)) => clip(description, 0),
+                (found, _) => clip_around(raw, &text, found.unwrap_or(0)),
+            };
+            Some((matched, score, format!("{score} {target} {label}\n  {snippet}")))
         })
         .collect();
-    hits.sort_by_key(|hit| std::cmp::Reverse(hit.0));
-    hits.into_iter().take(limit).map(|(_, v)| v).collect()
+    let most = hits.iter().map(|h| h.0).max().unwrap_or(0);
+    hits.retain(|h| h.0 == most);
+    hits.sort_by_key(|h| std::cmp::Reverse(h.1));
+    hits.into_iter().take(limit).map(|h| h.2).collect()
+}
+
+/// About `SNIPPET` characters of `raw` around byte `at` of its lowercased
+/// form `lower`, starting a few words before it.
+fn clip_around(raw: &str, lower: &str, at: usize) -> String {
+    // Lowercasing can change byte lengths; start from the top when the
+    // offset does not carry over to the original.
+    let at = if raw.len() == lower.len() && raw.is_char_boundary(at) { at } else { 0 };
+    let start = raw[..at].char_indices().rev().nth(50).map_or(0, |(i, _)| i);
+    let start = if start > 0 { raw[start..].find(' ').map_or(start, |i| start + i + 1) } else { 0 };
+    clip(raw, start)
+}
+
+/// About `SNIPPET` characters of `raw` from byte `start`, cut on a space.
+fn clip(raw: &str, start: usize) -> String {
+    let mut out: String = raw[start..].chars().take(SNIPPET).collect();
+    if start + out.len() < raw.len() {
+        if let Some(i) = out.rfind(' ') {
+            out.truncate(i);
+        }
+        out.push('…');
+    }
+    if start > 0 {
+        out.insert(0, '…');
+    }
+    out
+}
+
+/// `hours.monday` or `team.0.name` inside a JSON value.
+fn lookup<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    path.split('.').filter(|p| !p.is_empty()).try_fold(value, |v, key| match v {
+        Value::Array(items) => items.get(key.parse::<usize>().ok()?),
+        _ => v.get(key),
+    })
+}
+
+/// An `items` query: filters, sort, field selection, and a page window.
+struct Query {
+    filters: Vec<(String, String, Value)>,
+    fields: Option<Vec<String>>,
+    sort: Option<(String, bool)>,
+    limit: usize,
+    offset: usize,
+}
+
+const OPERATORS: [&str; 8] = ["eq", "ne", "gt", "gte", "lt", "lte", "contains", "in"];
+
+impl Query {
+    fn parse(args: &Value) -> Result<Query> {
+        let mut filters = Vec::new();
+        match &args["where"] {
+            Value::Null => {}
+            Value::Object(map) => {
+                for (field, condition) in map {
+                    match condition {
+                        Value::Object(ops) => {
+                            for (op, value) in ops {
+                                if !OPERATORS.contains(&op.as_str()) {
+                                    bail!("where.{field}: unknown operator {op}; use {}", OPERATORS.join(", "));
+                                }
+                                filters.push((field.clone(), op.clone(), value.clone()));
+                            }
+                        }
+                        value => filters.push((field.clone(), "eq".into(), value.clone())),
+                    }
+                }
+            }
+            _ => bail!("where must be an object such as {{\"tags\": \"news\"}}"),
+        }
+        let fields = match &args["fields"] {
+            Value::Array(list) => Some(list.iter().filter_map(Value::as_str).map(str::to_string).collect()),
+            _ => None,
+        };
+        let sort = args["sort"].as_str().filter(|s| !s.is_empty()).map(|s| match s.strip_prefix('-') {
+            Some(field) => (field.to_string(), true),
+            None => (s.to_string(), false),
+        });
+        let limit = args["limit"].as_u64().unwrap_or(20).clamp(1, 200) as usize;
+        let offset = args["offset"].as_u64().unwrap_or(0).min(1 << 24) as usize;
+        Ok(Query { filters, fields, sort, limit, offset })
+    }
+
+    fn run(&self, entries: &[Value]) -> Value {
+        let mut matched: Vec<&Value> = entries.iter().filter(|e| self.filters.iter().all(|(f, op, v)| test(lookup(e, f), op, v))).collect();
+        if let Some((field, descending)) = &self.sort {
+            matched.sort_by(|a, b| {
+                let order = compare(lookup(a, field).unwrap_or(&Value::Null), lookup(b, field).unwrap_or(&Value::Null));
+                if *descending { order.reverse() } else { order }
+            });
+        }
+        let total = matched.len();
+        let items: Vec<Value> = matched.into_iter().skip(self.offset).take(self.limit).map(|e| self.shape(e)).collect();
+        let mut out = json!({ "total": total, "items": items });
+        if self.offset + self.limit < total {
+            out["next_offset"] = json!(self.offset + self.limit);
+        }
+        out
+    }
+
+    /// The requested fields, or every field but the body. An entry with a
+    /// page keeps its URL and drops the slug, which the URL already holds.
+    fn shape(&self, entry: &Value) -> Value {
+        let Some(map) = entry.as_object() else { return entry.clone() };
+        let mut out = Map::new();
+        match &self.fields {
+            Some(fields) => {
+                for f in fields {
+                    if let Some(v) = lookup(entry, f) {
+                        out.insert(f.clone(), v.clone());
+                    }
+                }
+            }
+            None => {
+                for (k, v) in map {
+                    let redundant = k == "slug" && map.get("url").is_some_and(|u| !u.is_null());
+                    if k != "markdown" && !redundant && !v.is_null() {
+                        out.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        Value::Object(out)
+    }
+}
+
+/// Orders numbers numerically and everything else as text, which keeps
+/// ISO dates and times in time order. Missing values sort last.
+fn compare(a: &Value, b: &Value) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (Value::Null, Value::Null) => Ordering::Equal,
+        (Value::Null, _) => Ordering::Greater,
+        (_, Value::Null) => Ordering::Less,
+        (Value::Number(x), Value::Number(y)) => x.as_f64().unwrap_or(0.0).total_cmp(&y.as_f64().unwrap_or(0.0)),
+        _ => scalar(a).cmp(&scalar(b)),
+    }
+}
+
+fn scalar(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.to_lowercase(),
+        other => other.to_string(),
+    }
+}
+
+fn test(value: Option<&Value>, op: &str, wanted: &Value) -> bool {
+    let value = value.unwrap_or(&Value::Null);
+    let eq = |a: &Value| compare(a, wanted).is_eq();
+    match op {
+        // A list field matches when any of its items does.
+        "eq" => match value {
+            Value::Array(items) => items.iter().any(eq),
+            v => eq(v),
+        },
+        "ne" => !test(Some(value), "eq", wanted),
+        "contains" => match value {
+            Value::Array(items) => items.iter().any(eq),
+            Value::String(s) => s.to_lowercase().contains(&scalar(wanted)),
+            _ => false,
+        },
+        "in" => wanted.as_array().is_some_and(|options| options.iter().any(|o| test(Some(value), "eq", o))),
+        _ if value.is_null() => false,
+        "gt" => compare(value, wanted).is_gt(),
+        "gte" => compare(value, wanted).is_ge(),
+        "lt" => compare(value, wanted).is_lt(),
+        "lte" => compare(value, wanted).is_le(),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -428,6 +830,8 @@ mod tests {
         assert_eq!(twin_path("/../../etc/passwd"), None);
         assert_eq!(twin_path("/%2e%2e/secret"), None);
         assert_eq!(twin_path("/docs/c:/x"), None);
+        assert_eq!(split_anchor("https://x.dev/docs/a/#setup"), ("/docs/a/", Some("setup")));
+        assert_eq!(split_anchor("/docs/a/?q=1"), ("/docs/a/", None));
     }
 
     #[test]
@@ -454,14 +858,55 @@ mod tests {
     }
 
     #[test]
-    fn ranks_title_matches_first() {
+    fn ranks_title_matches_first_and_points_at_sections() {
         let index = vec![
             json!({"url": "/a/", "title": "Other", "headings": [], "text": "mentions routing once"}),
-            json!({"url": "/b/", "title": "Routing", "headings": [], "text": "all about routing"}),
+            json!({"url": "/b/", "title": "Routing", "description": "How files become URLs.", "headings": [{"id": "dynamic", "text": "Dynamic routes"}], "text": "Routing all about it"}),
         ];
         let hits = search(&index, "routing", 5);
-        assert_eq!(hits[0]["url"], "/b/");
         assert_eq!(hits.len(), 2);
+        // A title match needs no section, and its snippet is the description.
+        assert_eq!(hits[0], "11 /b/ Routing\n  How files become URLs.");
+        // Pages matching every term outrank pages matching some, and a
+        // heading matching a term the title lacks is pointed at.
+        let hits = search(&index, "dynamic routing", 5);
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert!(hits[0].starts_with("17 /b/#dynamic Routing › Dynamic routes"), "{hits:?}");
+        assert!(search(&index, "nothing here", 5).is_empty());
+    }
+
+    #[test]
+    fn reads_sections_and_cuts_long_pages() {
+        let page = "---\ntitle: Hours\n---\n\n# Hours\n\nIntro.\n\n## Weekdays\n\nNine to five.\n\n### Holidays\n\nClosed.\n\n## Weekends\n\n```\n## not a heading\n```\n";
+        let all = read(page, "/h/", None, 10_000).unwrap();
+        assert!(all.starts_with("# Hours") && !all.contains("title:"), "{all}");
+        let weekdays = read(page, "/h/", Some("weekdays"), 10_000).unwrap();
+        assert_eq!(weekdays, "## Weekdays\n\nNine to five.\n\n### Holidays\n\nClosed.");
+        assert_eq!(read(page, "/h/", Some("#holidays"), 10_000).unwrap(), "### Holidays\n\nClosed.");
+        let err = read(page, "/h/", Some("lunch"), 10_000).unwrap_err().to_string();
+        assert!(err.contains("weekdays, holidays, weekends"), "{err}");
+        let cut = read(page, "/h/", None, 30).unwrap();
+        assert!(cut.starts_with("# Hours\n\nIntro.") && cut.contains("more characters") && cut.ends_with("holidays, weekends]"), "{cut}");
+    }
+
+    #[test]
+    fn queries_collections_by_field() {
+        let entries = vec![
+            json!({"slug": "a", "url": "/e/a/", "title": "Keynote", "starts": "2026-10-07T09:00", "price": 0, "tags": ["main"], "markdown": "body"}),
+            json!({"slug": "b", "url": "/e/b/", "title": "Rust", "starts": "2026-10-07T14:30", "price": 40, "tags": ["talk"]}),
+            json!({"slug": "c", "url": null, "title": "Party", "starts": "2026-10-08T20:00", "price": 15, "tags": ["social", "talk"]}),
+        ];
+        let run = |args: Value| Query::parse(&args).unwrap().run(&entries);
+        let r = run(json!({"where": {"price": {"gt": 0}}, "sort": "-price", "fields": ["title", "price"]}));
+        assert_eq!(r, json!({"total": 2, "items": [{"title": "Rust", "price": 40}, {"title": "Party", "price": 15}]}));
+        let r = run(json!({"where": {"tags": "talk", "starts": {"lt": "2026-10-08"}}}));
+        assert_eq!(r["items"], json!([{"url": "/e/b/", "title": "Rust", "starts": "2026-10-07T14:30", "price": 40, "tags": ["talk"]}]));
+        let r = run(json!({"where": {"title": {"contains": "key"}}}));
+        assert!(r["items"][0].get("markdown").is_none() && r["items"][0].get("slug").is_none(), "{r}");
+        assert_eq!(run(json!({"where": {"title": {"in": ["rust", "party"]}}}))["total"], 2);
+        assert_eq!(run(json!({"limit": 1}))["next_offset"], 1);
+        assert!(Query::parse(&json!({"where": {"price": {"like": 1}}})).is_err());
+        assert_eq!(lookup(&json!({"hours": [{"day": "mon"}]}), "hours.0.day"), Some(&json!("mon")));
     }
 
     /// Builds the starter, then asks every tool the same questions of the
@@ -498,23 +943,31 @@ mod tests {
             (reply["isError"] == json!(true), text)
         };
         for source in [&project, &site] {
-            let (err, info) = ask(source, "site_info", json!({}));
+            let (err, info) = ask(source, "site", json!({}));
             assert!(!err && info.contains("\"posts\"") && info.contains("team"), "{info}");
-            let (err, pages) = ask(source, "list_pages", json!({}));
-            assert!(!err && pages.contains("/posts/"), "{pages}");
-            let (err, home) = ask(source, "read_page", json!({ "url": "/" }));
-            assert!(!err && home.starts_with("---"), "{home}");
-            let (err, entries) = ask(source, "list_entries", json!({ "collection": "posts" }));
+            let (err, pages) = ask(source, "pages", json!({ "prefix": "/posts/" }));
+            assert!(!err && pages.starts_with("/posts/") && !pages.contains("\n/ |"), "{pages}");
+            let (err, home) = ask(source, "read", json!({ "path": "/" }));
+            assert!(!err && home.contains("# ") && !home.starts_with("---") && !home.contains("url:"), "{home}");
+            let (err, entries) = ask(source, "items", json!({ "collection": "posts", "fields": ["title", "date"] }));
             let entries: Value = serde_json::from_str(&entries).unwrap();
-            assert!(!err && entries["total"] == 2 && entries["entries"][0]["date"].is_string(), "{entries}");
-            let (err, team) = ask(source, "read_data", json!({ "name": "team" }));
-            assert!(!err && team.contains("Ada"), "{team}");
+            assert!(!err && entries["total"] == 2 && entries["items"][0]["date"].is_string(), "{entries}");
+            let (err, team) = ask(source, "data", json!({ "name": "team", "path": "0.name" }));
+            assert!(!err && team == "\"Ada\"", "{team}");
             let (err, hits) = ask(source, "search", json!({ "query": "motion" }));
             assert!(!err && hits.contains("/posts/"), "{hits}");
-            assert!(ask(source, "read_page", json!({ "url": "/nope/" })).0);
-            assert!(ask(source, "read_page", json!({ "url": "/../mira.config.json" })).0);
-            assert!(ask(source, "list_entries", json!({ "collection": "../data/team" })).0);
-            assert!(ask(source, "read_data", json!({ "name": "missing" })).0);
+            assert!(ask(source, "read", json!({ "path": "/nope/" })).0);
+            assert!(ask(source, "read", json!({ "path": "/../mira.config.json" })).0);
+            assert!(ask(source, "items", json!({ "collection": "../data/team" })).0);
+            assert!(ask(source, "data", json!({ "name": "missing" })).0);
         }
+
+        // A project rebuilds only when one of its files changes.
+        let stamp = *project.stamp.borrow();
+        ask(&project, "site", json!({}));
+        assert_eq!(*project.stamp.borrow(), stamp);
+        std::fs::write(root.join("data/team.json"), r#"[{"name": "Grace"}]"#).unwrap();
+        let (_, team) = ask(&project, "data", json!({ "name": "team" }));
+        assert!(team.contains("Grace"), "{team}");
     }
 }

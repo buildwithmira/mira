@@ -56,15 +56,29 @@ mira migrate <source> <dest> [--from <framework>] [--dry-run] [--json]
 | `--dry-run` | off | Report what would move without writing anything |
 | `--json` | off | Print the report and build result as JSON |
 
-Moves a site into a new Mira project at `dest`, which must be new or empty. The old project is only read, and nothing in it runs. See [Migrating to Mira](https://mira.omrajguru.site/docs/migrating/).
+Moves a site into a new Mira project at `dest`, which must be new or empty. The old project is only read, and nothing in it runs. See [Migrating to Mira](migrating.md).
 
 ## mira mcp
 
 ```bash
-mira mcp [--root <dir>]
+mira mcp [--root <dir> | --url <site>]
 ```
 
-Runs an MCP server over standard input and output. See [MCP server](mcp.md).
+Runs an MCP server over standard input and output, for the project in `--root` or for any deployed Mira site at `--url`. See [MCP server](mcp.md).
+
+## mira audit
+
+```bash
+mira audit --agent [--root <dir>] [--budget <tokens>] [--json]
+```
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `--root` | `.` | The project to audit |
+| `--budget` | `1000` | Tokens a page may use before it is flagged |
+| `--json` | off | Print the report as JSON |
+
+Builds the site into `.mira/audit/` and lists what each page costs an agent to read, in approximate tokens at four characters each: its Markdown copy, its search index entry, and its largest section. It also reports the size of `llms.txt`, `llms-full.txt`, and the MCP tool list. Pages over the budget are flagged with what to change, such as adding headings so agents can read them a section at a time.
 
 ## Terminal output
 
