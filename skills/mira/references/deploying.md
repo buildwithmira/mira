@@ -1,6 +1,6 @@
 # Deploying
 
-Publish the dist folder to Vercel, Netlify, Cloudflare, GitHub Pages, Firebase, Render, Azure, AWS, Google Cloud, Docker, or Deno, with each host's config written for you.
+Publish dist to Vercel, Netlify, Cloudflare, GitHub Pages, Firebase, Render, Azure, AWS, Google Cloud, Docker, or Deno, with each host's config written for you.
 
 `mira build` writes a complete static site to `dist/`. Deploying is publishing that folder. Name your hosts in `mira.config.json`, and Mira writes each host's own config file on every build, so headers, clean URLs, the 404 page, redirects, and Markdown twins behave the same everywhere.
 
