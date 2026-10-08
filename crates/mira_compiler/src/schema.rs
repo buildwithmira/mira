@@ -45,9 +45,13 @@ const BUILT_IN: [&str; 14] = [
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Schema {
+    #[serde(default)]
     pub fields: BTreeMap<String, String>,
     #[serde(default = "yes")]
     pub strict: bool,
+    /// Entries fetched from a CMS or JSON API at build time, in addition to
+    /// any files in `content/<name>/`.
+    pub source: Option<crate::sources::Source>,
 }
 
 fn yes() -> bool {
@@ -93,6 +97,9 @@ fn parse_type(spec: &str) -> Option<(Kind, bool)> {
 
 impl Schema {
     pub fn check_types(&self, collection: &str) -> Result<()> {
+        if let Some(source) = &self.source {
+            source.check(collection)?;
+        }
         for (field, spec) in &self.fields {
             if parse_type(spec).is_none() {
                 bail!(
@@ -125,7 +132,8 @@ impl Schema {
                 }
             }
         }
-        if self.strict {
+        // A schema that only names a source takes every field as it comes.
+        if self.strict && !self.fields.is_empty() {
             for key in data.keys() {
                 if !self.fields.contains_key(key) && !BUILT_IN.contains(&key.as_str()) {
                     let known: Vec<&str> = self.fields.keys().map(String::as_str).collect();

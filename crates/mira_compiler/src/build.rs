@@ -13,6 +13,7 @@ use crate::assets::{BASE_CSS, FRAME_JS, NOT_FOUND_MIRA, RUNTIME_JS, SEARCH_JS, c
 use crate::config::Config;
 use crate::content::{parse_document, reading_time, render_markdown};
 use crate::html::{compile_morphs, csp_hash, escape, mark_current_links, size_images};
+use crate::mdx::Components;
 use crate::outputs::{PageMeta, twin_url};
 use crate::template::{Component, parse_component};
 use crate::twin::html_to_markdown;
@@ -83,12 +84,14 @@ struct Entry {
     html: String,
     /// Markdown source of the body, reused for the twin.
     markdown: String,
+    /// CSS of the MDX components the body uses.
+    css: String,
     url: Option<String>,
 }
 
 enum RouteBody {
-    /// Rendered HTML and the Markdown source.
-    Markdown(String, String),
+    /// Rendered HTML, the Markdown for the twin, and component CSS.
+    Markdown(String, String, String),
     Component(Component),
 }
 
@@ -141,15 +144,16 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     let host_files = crate::hosts::files(&config, &out_rel)?;
 
     let layouts = load_layouts(root)?;
-    let mut collections = load_collections(root, opts.dev, &config)?;
-    for name in config.collections.keys() {
-        if !collections.contains_key(name) {
+    let components = crate::mdx::load_components(root)?;
+    let (mut collections, mut warnings) = load_collections(root, opts.dev, &config, &components)?;
+    for (name, schema) in &config.collections {
+        if !collections.contains_key(name) && schema.source.is_none() {
             bail!(
                 "mira.config.json: collections.{name} has a schema but content/{name}/ does not exist\nhint: create the folder or remove the schema"
             );
         }
     }
-    let routes = load_routes(root, opts.dev)?;
+    let routes = load_routes(root, opts.dev, &components)?;
     clock.lap("load");
 
     // Dynamic routes give collection entries their URLs.
@@ -207,7 +211,6 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
         }
     }
 
-    let mut warnings = Vec::new();
     let feeds: Vec<(String, String)> = if config.site.url.is_some() {
         routes.iter().filter_map(|r| r.collection.as_ref().map(|c| (c.clone(), format!("{}rss.xml", r.base_url())))).collect()
     } else {
@@ -467,8 +470,16 @@ fn render_page(
     });
 
     let mut styles = vec![shared.base_css.clone(), shared.font_css.clone(), shared.theme_css.clone()];
+    if let Some(css) = entry.map(|e| &e.css).filter(|c| !c.is_empty()) {
+        styles.push(format!("@layer components{{{css}}}"));
+    }
     let body = match &route.body {
-        RouteBody::Markdown(html, _) => format!("<article class=\"prose\">\n{html}</article>"),
+        RouteBody::Markdown(html, _, css) => {
+            if !css.is_empty() {
+                styles.push(format!("@layer components{{{css}}}"));
+            }
+            format!("<article class=\"prose\">\n{html}</article>")
+        }
         RouteBody::Component(c) => {
             if let Some(style) = &c.style {
                 styles.push(format!("@layer page{{{}}}", compact_css(style)));
@@ -491,7 +502,7 @@ fn render_page(
     let twin = (shared.config.agents.twins && !route.not_found).then(|| {
         let markdown = match (&route.body, entry) {
             (_, Some(e)) => e.markdown.clone(),
-            (RouteBody::Markdown(_, md), None) => md.clone(),
+            (RouteBody::Markdown(_, md, _), None) => md.clone(),
             (RouteBody::Component(_), None) => html_to_markdown(&body),
         };
         twin_document(shared, &page, &page_title, &url, &markdown)
@@ -1155,31 +1166,51 @@ fn load_layouts(root: &Path) -> Result<HashMap<String, (PathBuf, Component)>> {
     Ok(layouts)
 }
 
-fn load_collections(root: &Path, include_drafts: bool, config: &Config) -> Result<BTreeMap<String, Vec<Entry>>> {
+type Collections = BTreeMap<String, Vec<Entry>>;
+
+/// Loads every collection: Markdown files in `content/<name>/`, plus the
+/// items of any CMS or JSON source the schema names. Returns warnings from
+/// sources that fell back to their cache.
+fn load_collections(root: &Path, include_drafts: bool, config: &Config, components: &Components) -> Result<(Collections, Vec<String>)> {
     let dir = root.join("content");
-    let mut collections = BTreeMap::new();
-    if !dir.exists() {
-        return Ok(collections);
-    }
-    for item in std::fs::read_dir(&dir)? {
-        let item = item?;
-        if !item.file_type()?.is_dir() {
-            continue;
+    let mut collections: Collections = BTreeMap::new();
+    let mut warnings = Vec::new();
+    if dir.exists() {
+        for item in std::fs::read_dir(&dir)? {
+            let item = item?;
+            if !item.file_type()?.is_dir() {
+                continue;
+            }
+            let name = item.file_name().to_string_lossy().to_string();
+            let files: Vec<PathBuf> = WalkDir::new(item.path())
+                .into_iter()
+                .filter_map(Result::ok)
+                .map(|e| e.into_path())
+                .filter(|p| p.extension().is_some_and(|e| e == "md" || e == "mdx"))
+                .collect();
+            let entries = files
+                .par_iter()
+                .map(|path| load_entry(root, path, config.collections.get(&name), components))
+                .collect::<Result<Vec<_>>>()?;
+            collections.insert(name, entries);
         }
-        let name = item.file_name().to_string_lossy().to_string();
-        let files: Vec<PathBuf> = WalkDir::new(item.path())
-            .into_iter()
-            .filter_map(Result::ok)
-            .map(|e| e.into_path())
-            .filter(|p| p.extension().is_some_and(|e| e == "md"))
-            .collect();
-        let mut entries: Vec<Entry> = files
-            .par_iter()
-            .map(|path| load_entry(root, path, config.collections.get(&name)))
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .filter(|e| include_drafts || e.data.get("draft") != Some(&Value::Bool(true)))
-            .collect();
+    }
+    for (name, schema) in &config.collections {
+        let Some(source) = &schema.source else { continue };
+        let fields = (!schema.fields.is_empty()).then_some(&schema.fields);
+        let (items, notes) = source.load(root, name, fields, include_drafts)?;
+        warnings.extend(notes);
+        let entries = collections.entry(name.clone()).or_default();
+        for (i, item) in items.into_iter().enumerate() {
+            let shown = PathBuf::from(format!("collections.{name}.source item {}", i + 1));
+            let slug = item.data.get("slug").and_then(Value::as_str).unwrap_or_default().to_string();
+            schema.validate(&item.data, "", &shown.display().to_string())?;
+            let md = render_markdown(&item.markdown);
+            entries.push(make_entry(&shown, item.data, slug, md, item.twin, String::new(), Path::new(""))?);
+        }
+    }
+    for entries in collections.values_mut() {
+        entries.retain(|e| include_drafts || e.data.get("draft") != Some(&Value::Bool(true)));
         // Entries with an `order` come first, ascending; the rest follow
         // newest first by `date`, then by slug.
         entries.sort_by(|a, b| {
@@ -1187,36 +1218,54 @@ fn load_collections(root: &Path, include_drafts: bool, config: &Config) -> Resul
             let date = |e: &Entry| e.data.get("date").and_then(Value::as_str).unwrap_or("").to_string();
             order(a).total_cmp(&order(b)).then_with(|| date(b).cmp(&date(a))).then_with(|| a.slug.cmp(&b.slug))
         });
-        collections.insert(name, entries);
     }
-    Ok(collections)
+    Ok((collections, warnings))
 }
 
-fn load_entry(root: &Path, path: &Path, schema: Option<&crate::schema::Schema>) -> Result<Entry> {
+fn load_entry(root: &Path, path: &Path, schema: Option<&crate::schema::Schema>, components: &Components) -> Result<Entry> {
     let src = std::fs::read_to_string(path)?;
     let shown = rel_path(root, path);
     let doc = parse_document(&src, &shown)?;
     if let Some(schema) = schema {
         schema.validate(&doc.data, &src.replace("\r\n", "\n"), &shown.display().to_string())?;
     }
-    let md = render_markdown(&doc.body);
     let slug = match doc.data.get("slug") {
         Some(Value::String(s)) => s.clone(),
         Some(_) => bail!("{}:2: slug must be a string", shown.display()),
         None => path.file_stem().unwrap().to_string_lossy().to_string(),
     };
+    let dir = shown.parent().unwrap_or(Path::new("")).to_path_buf();
+    if path.extension().is_some_and(|e| e == "mdx") {
+        let r = crate::mdx::render(&doc.body, &shown, doc.body_line, components)?;
+        return make_entry(&shown, doc.data, slug, r.markdown, r.twin, r.css, &dir);
+    }
+    let md = render_markdown(&doc.body);
+    make_entry(&shown, doc.data, slug, md, doc.body, String::new(), &dir)
+}
+
+/// An entry from its fields and rendered body. `twin` is the Markdown
+/// agents get, which differs from the source when images were downloaded
+/// or components rendered.
+fn make_entry(
+    shown: &Path,
+    mut data: Map<String, Value>,
+    slug: String,
+    md: crate::content::Markdown,
+    twin: String,
+    css: String,
+    dir: &Path,
+) -> Result<Entry> {
     if slug.is_empty() || slug.contains(['/', '\\', '?', '#', ' ']) {
         bail!("{}: slug {slug:?} must be non-empty with no spaces, slashes, ? or #", shown.display());
     }
-    let mut data = doc.data;
     data.entry("reading_time").or_insert(Value::from(reading_time(md.words)));
     data.insert("toc".into(), serde_json::to_value(&md.toc)?);
-    let html = crate::media::rebase(&md.html, shown.parent().unwrap_or(Path::new("")));
-    Ok(Entry { slug, source: shown, data, html, markdown: doc.body, url: None })
+    let html = crate::media::rebase(&md.html, dir);
+    Ok(Entry { slug, source: shown.to_path_buf(), data, html, markdown: twin, css, url: None })
 }
 
 /// Loads every route. Routes with `draft: true` are kept only in dev.
-fn load_routes(root: &Path, include_drafts: bool) -> Result<Vec<Route>> {
+fn load_routes(root: &Path, include_drafts: bool, components: &Components) -> Result<Vec<Route>> {
     let dir = root.join("routes");
     if !dir.exists() {
         bail!("{}: no routes/ directory\nhint: run `mira new` to scaffold a project, or create routes/index.md", root.display());
@@ -1225,7 +1274,7 @@ fn load_routes(root: &Path, include_drafts: bool) -> Result<Vec<Route>> {
     for item in WalkDir::new(&dir).sort_by_file_name() {
         let path = item?.into_path();
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else { continue };
-        if !matches!(ext, "md" | "mira") || !path.is_file() {
+        if !matches!(ext, "md" | "mdx" | "mira") || !path.is_file() {
             continue;
         }
         let shown = rel_path(root, &path);
@@ -1243,13 +1292,18 @@ fn load_routes(root: &Path, include_drafts: bool) -> Result<Vec<Route>> {
             segments.push(None);
         }
 
-        let (data, body) = if ext == "md" {
+        let (data, body) = if ext == "md" || ext == "mdx" {
             let doc = parse_document(&src, &shown)?;
-            let md = render_markdown(&doc.body);
+            let (md, twin, css) = if ext == "mdx" {
+                let r = crate::mdx::render(&doc.body, &shown, doc.body_line, components)?;
+                (r.markdown, r.twin, r.css)
+            } else {
+                (render_markdown(&doc.body), doc.body, String::new())
+            };
             let mut data = doc.data;
             data.insert("toc".into(), serde_json::to_value(&md.toc)?);
             let html = crate::media::rebase(&md.html, shown.parent().unwrap_or(Path::new("")));
-            (data, RouteBody::Markdown(html, doc.body))
+            (data, RouteBody::Markdown(html, twin, css))
         } else {
             let mut c = parse_component(&src, &shown)?;
             (std::mem::take(&mut c.data), RouteBody::Component(c))
@@ -1268,7 +1322,7 @@ fn load_routes(root: &Path, include_drafts: bool) -> Result<Vec<Route>> {
         } else {
             None
         };
-        if dynamic && ext == "md" {
+        if dynamic && ext != "mira" {
             bail!("{}: dynamic routes must be .mira components", shown.display());
         }
         if !include_drafts && data.get("draft") == Some(&Value::Bool(true)) {
@@ -1389,5 +1443,121 @@ mod tests {
         let index: Value = serde_json::from_str(&std::fs::read_to_string(out.join("_mira/content.json")).unwrap()).unwrap();
         assert_eq!(index["collections"], json!([]));
         assert!(!out.join("_mira/data/team.json").exists());
+    }
+
+    /// A collection from a JSON API and one from Sanity, read from the
+    /// response cache so the test needs no network.
+    #[test]
+    fn builds_collections_from_sources() {
+        let root = std::env::temp_dir().join(format!("mira-build-{}-sources", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        crate::scaffold::scaffold(&root).unwrap();
+        let api = "https://api.example.test/menu.json";
+        let sanity =
+            "https://p1.apicdn.sanity.io/v2025-02-19/data/query/production?query=%2A%5B_type%3D%3D%22post%22%5D&perspective=published";
+        let cache = |url: &str, body: Value| {
+            let file = crate::sources::cache_file(&root, url);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, body.to_string()).unwrap();
+        };
+        cache(
+            api,
+            json!({ "data": [
+                { "id": 1, "name": "Flat white", "price": 4.5, "handle": "flat-white", "secret": "x" },
+                { "id": 2, "name": "Cortado", "price": 4, "handle": "cortado", "body": "Equal parts *espresso* and milk." }
+            ]}),
+        );
+        cache(
+            sanity,
+            json!({ "result": [{
+                "_id": "a", "title": "From Sanity", "slug": { "_type": "slug", "current": "from-sanity" }, "publishedAt": "2026-10-01",
+                "body": [{ "_type": "block", "style": "normal", "markDefs": [], "children": [{ "_type": "span", "text": "Written in Sanity.", "marks": [] }] }]
+            }]}),
+        );
+        let config = root.join("mira.config.json");
+        let mut value: Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+        value["collections"]["menu"] = json!({
+            "fields": { "name": "string", "price": "number" },
+            "source": { "json": { "url": api, "items": "data" }, "map": { "slug": "handle" } }
+        });
+        // Supabase and GraphQL requests are cached by URL and body too.
+        let supabase = "https://abcd.supabase.co/rest/v1/staff?select=name%2Crole&active=eq.true&limit=1000&offset=0";
+        cache(supabase, json!([{ "name": "Ada", "role": "Chef", "id": "ada" }]));
+        let graphql = "https://shop.example.test/graphql";
+        let query = "{ products { nodes { handle title } } }";
+        let key = crate::sources::cache_key(graphql, Some(&json!({ "query": query }).to_string()));
+        cache(&key, json!({ "data": { "products": { "nodes": [{ "handle": "beans", "title": "House beans" }] } } }));
+        // SAFETY: the variable name is unique to this test.
+        unsafe { std::env::set_var("MIRA_TEST_SUPABASE_KEY", "anon") };
+        value["collections"]["staff"] = json!({
+            "fields": { "name": "string", "role": "string" },
+            "source": {
+                "supabase": { "url": "https://abcd.supabase.co", "table": "staff", "select": "name,role", "filter": { "active": "eq.true" }, "key_env": "MIRA_TEST_SUPABASE_KEY" },
+                "map": { "slug": "id" }
+            }
+        });
+        value["collections"]["products"] = json!({
+            "fields": { "title": "string" },
+            "source": { "graphql": { "url": graphql, "query": query, "items": "data.products.nodes" }, "map": { "slug": "handle" } }
+        });
+        value["collections"]["posts"]["source"] = json!({
+            "sanity": { "project": "p1", "dataset": "production", "query": "*[_type==\"post\"]" },
+            "map": { "date": "publishedAt" }
+        });
+        std::fs::write(&config, value.to_string()).unwrap();
+
+        let out = root.join("dist");
+        let report = build(&BuildOptions { root: root.clone(), out: out.clone(), dev: true, host_config: false }).unwrap();
+        assert_eq!(report.collections["menu"], 2);
+        assert_eq!(report.collections["posts"], 3);
+        assert_eq!(report.collections["staff"], 1);
+        assert_eq!(report.collections["products"], 1);
+        let menu: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(out.join("_mira/collections/menu.json")).unwrap()).unwrap();
+        let cortado = menu.iter().find(|e| e["slug"] == "cortado").unwrap();
+        assert_eq!(cortado["price"], 4);
+        assert_eq!(cortado["markdown"], "Equal parts *espresso* and milk.");
+        assert!(menu.iter().all(|e| e.get("secret").is_none() && e.get("id").is_none()), "only schema fields are taken");
+        let page = std::fs::read_to_string(out.join("posts/from-sanity/index.html")).unwrap();
+        assert!(page.contains("Written in Sanity."));
+        assert!(std::fs::read_to_string(out.join("posts/from-sanity.md")).unwrap().contains("Written in Sanity."));
+
+        // A schema error names the item.
+        let mut bad = value.clone();
+        bad["collections"]["menu"]["fields"]["price"] = json!("string");
+        std::fs::write(&config, bad.to_string()).unwrap();
+        let err = build(&BuildOptions { root: root.clone(), out: out.clone(), dev: true, host_config: false }).unwrap_err().to_string();
+        assert!(err.contains("collections.menu.source item 1") && err.contains("price"), "{err}");
+    }
+
+    /// An MDX post with a component: rendered into the page with the
+    /// component's CSS, and readable as Markdown in its twin.
+    #[test]
+    fn builds_mdx_with_components() {
+        let root = std::env::temp_dir().join(format!("mira-build-{}-mdx", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        crate::scaffold::scaffold(&root).unwrap();
+        std::fs::create_dir_all(root.join("components")).unwrap();
+        std::fs::write(
+            root.join("components/Note.mira"),
+            "<template><aside class=\"note\"><strong>{{ props.title }}</strong><slot /></aside></template>\n<style>.note { border: 1px solid }</style>\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("content/posts/with-note.mdx"),
+            "---\ntitle: With a note\ndate: 2026-10-08\n---\n\nimport Note from '../../components/Note.mira'\n\n<Note title=\"Heads up\">\n  Read *this* first.\n</Note>\n\n## After\n\nMore text.\n",
+        )
+        .unwrap();
+        let out = root.join("dist");
+        build(&BuildOptions { root: root.clone(), out: out.clone(), dev: false, host_config: false }).unwrap();
+        let page = std::fs::read_to_string(out.join("posts/with-note/index.html")).unwrap();
+        assert!(page.contains("<aside class=\"note\"><strong>Heads up</strong><p>Read <em>this</em> first.</p>"), "{page}");
+        assert!(page.contains("@layer components{"), "component CSS is included");
+        assert!(page.contains("id=\"after\""));
+        let twin = std::fs::read_to_string(out.join("posts/with-note.md")).unwrap();
+        assert!(twin.contains("**Heads up**") && twin.contains("Read *this* first.") && !twin.contains("<Note"), "{twin}");
+
+        std::fs::write(root.join("content/posts/broken.mdx"), "---\ntitle: Broken\ndate: 2026-10-08\n---\n\nTotal: {price}\n").unwrap();
+        let err = build(&BuildOptions { root: root.clone(), out, dev: false, host_config: false }).unwrap_err().to_string();
+        assert!(err.contains("content/posts/broken.mdx:6:") || err.contains("content\\posts\\broken.mdx:6:"), "{err}");
     }
 }

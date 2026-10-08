@@ -1,6 +1,6 @@
 # Deploying
 
-Publish the dist folder to Vercel, Netlify, Cloudflare, GitHub Pages, Firebase, Render, Azure, Docker, Deno, or S3, with each host's config written for you.
+Publish the dist folder to Vercel, Netlify, Cloudflare, GitHub Pages, Firebase, Render, Azure, AWS, Google Cloud, Docker, or Deno, with each host's config written for you.
 
 `mira build` writes a complete static site to `dist/`. Deploying is publishing that folder. Name your hosts in `mira.config.json`, and Mira writes each host's own config file on every build, so headers, clean URLs, the 404 page, redirects, and Markdown twins behave the same everywhere.
 
@@ -47,6 +47,9 @@ Each key under `hosts` writes that host's config. Files go in the project root u
 | Docker | `docker` | `Dockerfile`, `nginx.conf` | `docker build -t site .` then `docker run -p 8080:8080 site` |
 | Deno Deploy | `deno` | `main.ts` | Deploy `main.ts` as the entry point. |
 | S3 and CloudFront | `s3` | `cloudfront-function.js` | Upload `dist/` to the bucket and attach the function to the distribution's viewer requests. |
+| AWS Amplify Hosting | `amplify` | `amplify.yml`, `customHttp.yml` | Connect the repository. Amplify publishes the committed `dist/`. |
+
+Container platforms run the `docker` image as it is: Google Cloud Run, AWS App Runner, Azure Container Apps, Fly.io, and Railway. Google Cloud's static hosting is Firebase Hosting, and Azure's is Static Web Apps, both above.
 
 Every host gets the same behavior:
 

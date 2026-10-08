@@ -86,6 +86,8 @@ Declare the fields a collection's frontmatter must have in `mira.config.json`:
 | `number[]` | A list of numbers |
 | `object[]` | A list of mappings, such as a schedule of talks |
 
+Entries can also come from Sanity, Contentful, Supabase, a GraphQL API, or any JSON endpoint: see [Content from a CMS or API](content-sources.md). Entries can be written in [MDX](mdx.md) too.
+
 Typed fields are also what agents query. Over MCP, `items` filters a collection by them, so prices compare as numbers and dates and times in time order. See [Query collections](mcp.md#query-collections).
 
 Add `?` to make a field optional. Fields not in the schema fail the build, which catches typos such as `auther:`; set `"strict": false` on the collection to allow them. Mira's own keys (`slug`, `draft`, `layout`, `transition`, and `order`) are always allowed.

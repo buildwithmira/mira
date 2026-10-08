@@ -76,6 +76,8 @@ Declare a schema in `mira.config.json`, then add Markdown files to `content/<nam
 { "collections": { "posts": { "fields": { "title": "string", "date": "date", "tags": "string[]?" } } } }
 ```
 
+A collection can come from Sanity, Contentful, Supabase, any GraphQL API, or any JSON endpoint: add `"source"` to its schema (see `references/content-sources.md`). Tokens go in environment variables named by `token_env`, `key_env`, or `headers`, never in the config. Entries and pages can be `.mdx`, with components in `components/<Name>.mira` reading `{{ props.x }}` and `<slot />`; no JavaScript runs (see `references/mdx.md`).
+
 Types are `string`, `number`, `boolean`, `date` (`YYYY-MM-DD`), `time` (`HH:MM`), `datetime`, `url`, `object`, `string[]`, `number[]`, and `object[]`; end a type with `?` to make it optional. Declare prices, dates, and times with their real types: agents query collections by them over MCP. Unknown fields fail the build unless the schema sets `"strict": false`. Entries sort by `order`, then newest `date`. `draft: true` hides an entry from production builds.
 
 ## Markdown
@@ -137,7 +139,8 @@ Run `mira audit --agent` after changing content to see what each page costs an a
 | Install and first site | `references/installation.md`, `references/quick-start.md` |
 | Folders and URLs | `references/project-structure.md`, `references/routing.md` |
 | Template syntax | `references/templates.md`, `references/layouts.md` |
-| Collections and data | `references/collections.md`, `references/data-files.md` |
+| Collections and data | `references/collections.md`, `references/data-files.md`, `references/content-sources.md` |
+| MDX | `references/mdx.md` |
 | Markdown | `references/markdown.md` |
 | Transitions | `references/page-transitions.md`, `references/shared-elements.md` |
 | Styling | `references/theming.md`, `references/components.md`, `references/fonts.md` |

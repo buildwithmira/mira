@@ -1,4 +1,4 @@
-@layer mira.reset, mira.tokens, mira.theme, mira.base, mira.prose, mira.components, mira.transitions, layout, page;
+@layer mira.reset, mira.tokens, mira.theme, mira.base, mira.prose, mira.components, mira.transitions, components, layout, page;
 
 @view-transition { navigation: auto; }
 

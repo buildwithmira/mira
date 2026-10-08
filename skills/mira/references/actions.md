@@ -33,11 +33,11 @@ Add it to `mira.config.json`:
 | `endpoint` | Where the input goes, as a JSON `POST`. `https://` only, or `http://localhost` while developing |
 | `confirm` | Ask the person before sending. On unless set to `false` |
 
-Names use lowercase letters, digits, and `_`, and cannot be the name of a built-in MCP tool such as `search`. The build checks every action, and a mistake fails it with the line to fix.
+Names use lowercase letters, digits, and `_`, and cannot be the name of a built-in MCP tool such as `search`. The build checks every action, and a mistake fails it, naming the key to fix.
 
 ## The endpoint
 
-Your site stays static. The endpoint is whatever receives the request: a form service, a serverless function on your host, or your own API. It gets the input as a JSON body:
+Your site stays static. The endpoint is whatever receives the request: a form service, your own API, or a function on AWS Lambda (with a function URL or API Gateway), Google Cloud Functions or Cloud Run, Azure Functions, Supabase Edge Functions, Cloudflare Workers, Vercel, or Netlify. It gets the input as a JSON body:
 
 ```http
 POST /bookings HTTP/1.1

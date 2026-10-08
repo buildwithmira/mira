@@ -23,7 +23,8 @@ use crate::config::Config;
 use crate::outputs::{IMMUTABLE, IMMUTABLE_DIRS, MARKDOWN, security_headers};
 
 /// Every host Mira writes config for.
-pub const HOSTS: [&str; 10] = ["vercel", "netlify", "cloudflare", "github", "firebase", "render", "azure", "docker", "deno", "s3"];
+pub const HOSTS: [&str; 11] =
+    ["vercel", "netlify", "cloudflare", "github", "firebase", "render", "azure", "docker", "deno", "s3", "amplify"];
 
 /// Marks the files Mira writes, so a hand written file is never overwritten.
 /// Hosts reject unknown keys in their JSON configs, so those are recognized
@@ -90,6 +91,10 @@ pub fn files(config: &Config, out_dir: &str) -> Result<Vec<HostFile>> {
             }
             "deno" => add("deno", "main.ts", Place::Root, deno(config, out_dir)),
             "s3" => add("s3", "cloudfront-function.js", Place::Root, cloudfront(config)),
+            "amplify" => {
+                add("amplify", "amplify.yml", Place::Root, amplify(out_dir));
+                add("amplify", "customHttp.yml", Place::Root, amplify_headers(config));
+            }
             other => bail!("mira.config.json: hosts.{other} is not a host Mira knows\nhint: use one or more of {}", HOSTS.join(", ")),
         }
     }
@@ -203,6 +208,30 @@ fn redirects_file(config: &Config) -> String {
         if r.from.ends_with('/') && r.from.len() > 1 {
             out.push_str(&format!("{} {} 301!\n", r.from.trim_end_matches('/'), r.to));
         }
+    }
+    out
+}
+
+// ----------------------------------------------------------- AWS Amplify
+
+fn amplify(out_dir: &str) -> String {
+    format!(
+        "# {STAMP}.\n# AWS Amplify Hosting publishes the committed {out_dir}/ as is; headers come\n# from customHttp.yml, and redirects are pages at the old paths.\nversion: 1\nfrontend:\n  phases:\n    build:\n      commands:\n        - echo \"Built with mira build; publishing {out_dir}/\"\n  artifacts:\n    baseDirectory: {out_dir}\n    files:\n      - '**/*'\n"
+    )
+}
+
+fn amplify_headers(config: &Config) -> String {
+    let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
+    let mut out = format!("# {STAMP}.\ncustomHeaders:\n  - pattern: '**/*'\n    headers:\n");
+    for (name, value) in security_headers(config) {
+        out.push_str(&format!("      - key: {}\n        value: {}\n", quote(name), quote(value)));
+    }
+    out.push_str(&format!("  - pattern: '**/*.md'\n    headers:\n      - key: \"Content-Type\"\n        value: {}\n", quote(MARKDOWN)));
+    for dir in IMMUTABLE_DIRS {
+        out.push_str(&format!(
+            "  - pattern: '{dir}/**/*'\n    headers:\n      - key: \"Cache-Control\"\n        value: {}\n",
+            quote(IMMUTABLE)
+        ));
     }
     out
 }

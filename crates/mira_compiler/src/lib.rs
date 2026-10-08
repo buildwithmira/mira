@@ -14,10 +14,12 @@ mod assets;
 mod hosts;
 mod html;
 mod lint;
+mod mdx;
 mod media;
 mod outputs;
 mod pixel;
 mod search;
+pub mod sources;
 mod twin;
 
 pub use assets::{DEV_JS, OVERLAY_CSS};
