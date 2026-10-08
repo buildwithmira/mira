@@ -2,6 +2,10 @@
 
 All notable changes to Mira are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- A `<mira-frame>` tag split across lines in Markdown fails the build at that line. Markdown would have shown it as text.
+
 ## 0.2.0
 
 - Agent skills: `mira` for building and deploying Mira sites, and `mira-migrate` for moving sites to Mira. Install with `npx skills add buildwithmira/mira`.

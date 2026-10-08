@@ -16,7 +16,7 @@ Every image and video in Mira lives in a frame, and the frame is the only decora
 <mira-frame src="./pipeline.png" alt="Build pipeline" caption="Cold build, 1,000 pages" credit="Mira" zoom></mira-frame>
 ```
 
-In Markdown, keep the whole `<mira-frame>` tag on one line. Markdown only treats a line as HTML when the opening tag is complete on that line, so a tag split across lines renders as text. In `.mira` templates, any layout works.
+In Markdown, keep the whole `<mira-frame>` tag on one line. Markdown only treats a line as HTML when the opening tag is complete on that line, so a tag split across lines would render as text; the build stops at that line and says so. In `.mira` templates, any layout works.
 
 | Attribute | Meaning |
 | --- | --- |

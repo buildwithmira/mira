@@ -64,6 +64,36 @@ fn strip_yaml_positions(message: &str) -> String {
     out
 }
 
+/// Refuses a `<mira-frame>` tag split across lines in Markdown, which
+/// CommonMark would show as text instead of a frame. `first_line` is the
+/// line the body starts on in its file.
+pub fn check_frames(body: &str, path: &Path, first_line: usize) -> Result<()> {
+    let mut fenced = false;
+    for (i, line) in body.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            fenced = !fenced;
+        }
+        if fenced {
+            continue;
+        }
+        let mut rest = line;
+        while let Some(at) = rest.find("<mira-frame") {
+            let tag = &rest[at..];
+            let after = tag["<mira-frame".len()..].chars().next();
+            if after.is_none_or(|c| c.is_whitespace() || c == '>' || c == '/') && !tag.contains('>') {
+                bail!(
+                    "{}:{}: <mira-frame> is split across lines, so Markdown would show it as text\nhint: put the whole tag, from <mira-frame to >, on one line",
+                    path.display(),
+                    first_line + i
+                );
+            }
+            rest = &tag[1..];
+        }
+    }
+    Ok(())
+}
+
 pub struct Markdown {
     pub html: String,
     pub words: usize,
@@ -271,6 +301,15 @@ mod tests {
         let md = render_markdown("![A build](./a.png \"Cold build\")\n\nText with ![icon](/i.svg) inline.\n");
         assert!(md.html.starts_with(r#"<mira-frame src="./a.png" alt="A build" caption="Cold build"></mira-frame>"#), "{}", md.html);
         assert!(md.html.contains(r#"<p>Text with <mira-frame src="/i.svg" alt="icon"></mira-frame> inline.</p>"#), "{}", md.html);
+    }
+
+    #[test]
+    fn refuses_frames_split_across_lines() {
+        let ok = "<mira-frame src=\"a.png\" alt=\"A\"></mira-frame>\n\n```html\n<mira-frame\n  src=\"x\">\n```\n";
+        check_frames(ok, Path::new("a.md"), 4).unwrap();
+        let err =
+            check_frames("Intro\n\n<mira-frame\n  src=\"a.png\" alt=\"A\"></mira-frame>\n", Path::new("a.md"), 4).unwrap_err().to_string();
+        assert!(err.starts_with("a.md:6: <mira-frame> is split across lines"), "{err}");
     }
 
     #[test]
