@@ -1,6 +1,6 @@
 {
   "name": "@miraframework/mira",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A static site framework for content sites.",
   "license": "MIT OR Apache-2.0",
   "author": "Om Rajguru <hi@omrajguru.in>",

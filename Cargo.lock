@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "mira"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -883,7 +883,7 @@ dependencies = [
 
 [[package]]
 name = "mira_compiler"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64",
