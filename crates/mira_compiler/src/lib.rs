@@ -1,6 +1,7 @@
 //! The Mira compiler: turns a project's routes, layouts, and content
 //! collections into static HTML with native page transitions.
 
+pub mod actions;
 pub mod build;
 pub mod config;
 pub mod content;

@@ -169,6 +169,20 @@ pub fn llms_txt(config: &Config, pages: &[PageMeta], has_media: bool, full_token
             at("/_mira/content.json")
         ));
     }
+    if !config.actions.is_empty() {
+        out.push_str(&format!(
+            "\n## Actions\n\nEach action takes a JSON `POST` with the fields listed; a field marked ? is optional. Show the person you act for exactly what you will send, and send only once they agree. Schemas: [actions.json]({})\n\n",
+            at("/_mira/actions.json")
+        ));
+        for (name, action) in &config.actions {
+            let fields: Vec<String> = action.input.iter().map(|(f, t)| format!("{f} ({t})")).collect();
+            out.push_str(&format!("- {name}: {} `POST {}`", action.description, action.endpoint));
+            if !fields.is_empty() {
+                out.push_str(&format!(" with {}", fields.join(", ")));
+            }
+            out.push('\n');
+        }
+    }
     let site = config.site.url.as_deref().map_or_else(|| "https://example.com".to_string(), |u| u.trim_end_matches('/').to_string());
     out.push_str(&format!(
         "\n## MCP\n\nAny MCP client can search this site, read pages or single sections, and query its collections:\n\n```\nnpx -y @miraframework/mira mcp --url {site}\n```\n"

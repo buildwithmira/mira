@@ -10,9 +10,16 @@
 //! returns a few short matches that point at sections, `read` can return a
 //! single section, and `items` filters a collection by its fields before
 //! anything is sent.
+//!
+//! Actions the site declares, such as booking a table, are offered as
+//! tools too. Their input is checked against its types, and nothing is sent
+//! until the person using the agent agrees: through the client's own prompt
+//! when it supports MCP elicitation, or with a one-time confirmation the
+//! agent must ask them for.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::hash::{BuildHasher, Hasher};
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -31,13 +38,17 @@ const FRESH: Duration = Duration::from_secs(30);
 const READ_CHARS: usize = 24_000;
 /// Characters per search snippet.
 const SNIPPET: usize = 160;
+/// How long an action's confirmation stays valid.
+const CONFIRM_FOR: Duration = Duration::from_secs(600);
+/// The most of an endpoint's response passed back to the agent.
+const REPLY_BYTES: u64 = 4096;
 
 /// Where a site's files come from.
 enum Origin {
     /// A project on disk, built into `.mira/mcp`.
     Project { root: PathBuf, out: PathBuf },
     /// A deployed site, read over HTTPS.
-    Site { base: String, agent: ureq::Agent },
+    Site { base: String },
 }
 
 /// A file's contents, or `None` for a 404, and when it was read.
@@ -47,6 +58,11 @@ type Fetched = (Instant, Option<Rc<str>>);
 /// MCP session, so the site is built or fetched once and reused.
 pub struct Source {
     origin: Origin,
+    /// HTTPS client for deployed sites and action endpoints.
+    agent: ureq::Agent,
+    /// Actions waiting for confirmation, by token: when each was offered,
+    /// the action, and the exact JSON it will send.
+    pending: RefCell<HashMap<String, (Instant, String, String)>>,
     /// Files by path, with when they were read. `None` records a 404.
     files: RefCell<HashMap<String, Fetched>>,
     /// Parsed JSON files by path, dropped with `files`.
@@ -57,7 +73,21 @@ pub struct Source {
 
 impl Source {
     fn new(origin: Origin) -> Source {
-        Source { origin, files: RefCell::default(), parsed: RefCell::default(), stamp: RefCell::default() }
+        let config = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(20)))
+            .max_redirects(0)
+            .http_status_as_error(false)
+            .user_agent(concat!("mira-mcp/", env!("CARGO_PKG_VERSION")))
+            .tls_config(tls())
+            .build();
+        Source {
+            origin,
+            agent: config.into(),
+            pending: RefCell::default(),
+            files: RefCell::default(),
+            parsed: RefCell::default(),
+            stamp: RefCell::default(),
+        }
     }
 
     pub fn project(root: &Path) -> Result<Source> {
@@ -69,15 +99,7 @@ impl Source {
     /// A deployed Mira site at `url`, such as `https://example.com` or a
     /// site under a path like `https://example.github.io/docs`.
     pub fn site(url: &str) -> Result<Source> {
-        let base = site_base(url)?;
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(20)))
-            .max_redirects(0)
-            .http_status_as_error(false)
-            .user_agent(concat!("mira-mcp/", env!("CARGO_PKG_VERSION")))
-            .tls_config(tls())
-            .build();
-        Ok(Source::new(Origin::Site { base, agent: config.into() }))
+        Ok(Source::new(Origin::Site { base: site_base(url)? }))
     }
 
     fn describe(&self) -> String {
@@ -137,9 +159,9 @@ impl Source {
                     _ => Ok(None),
                 }
             }
-            Origin::Site { base, agent } => {
+            Origin::Site { base } => {
                 let url = format!("{base}{path}");
-                let mut response = agent.get(&url).call().map_err(|e| anyhow!("could not reach {url}: {e}"))?;
+                let mut response = self.agent.get(&url).call().map_err(|e| anyhow!("could not reach {url}: {e}"))?;
                 let status = response.status().as_u16();
                 match status {
                     200..=299 => {
@@ -181,6 +203,11 @@ impl Source {
             Some(_) => bail!("/_mira/search.json is not a list of pages"),
             None => bail!("{} has no /_mira/search.json, so it is not a Mira site or was built without its agent files", self.describe()),
         }
+    }
+
+    /// The site's actions from `/_mira/actions.json`, if it has any.
+    fn actions(&self) -> Result<Vec<Value>> {
+        Ok(self.json("/_mira/actions.json")?.and_then(|a| a["actions"].as_array().cloned()).unwrap_or_default())
     }
 
     /// The site description and the content it publishes. Sites built before
@@ -249,51 +276,125 @@ fn site_base(url: &str) -> Result<String> {
     Ok(url.trim_end_matches('/').to_string())
 }
 
+/// The client connection: messages in, one per line, and messages out.
+/// A message that arrives while the server waits for the client's answer
+/// to an elicitation is queued and handled after.
+struct Client<R, W> {
+    lines: std::io::Lines<R>,
+    out: W,
+    queued: VecDeque<String>,
+    /// The client can show the person a confirmation prompt.
+    elicits: bool,
+    asked: u64,
+}
+
+impl<R: BufRead, W: Write> Client<R, W> {
+    fn next(&mut self) -> Option<std::io::Result<String>> {
+        self.queued.pop_front().map(Ok).or_else(|| self.lines.next())
+    }
+
+    fn send(&mut self, value: &Value) -> Result<()> {
+        writeln!(self.out, "{value}")?;
+        self.out.flush()?;
+        Ok(())
+    }
+
+    /// Asks the person, through the client, to agree to `message`. `None`
+    /// when the client cannot ask, so the caller falls back to a token.
+    fn confirm(&mut self, message: &str) -> Option<bool> {
+        if !self.elicits {
+            return None;
+        }
+        self.asked += 1;
+        let id = format!("mira-confirm-{}", self.asked);
+        let request = json!({
+            "jsonrpc": "2.0", "id": id, "method": "elicitation/create",
+            "params": { "message": message, "requestedSchema": { "type": "object", "properties": {} } }
+        });
+        self.send(&request).ok()?;
+        while let Some(Ok(line)) = self.lines.next() {
+            match serde_json::from_str::<Value>(&line) {
+                Ok(reply) if reply["id"] == id && reply.get("method").is_none() => {
+                    // An error means the client could not ask after all.
+                    return reply["result"]["action"].as_str().map(|action| action == "accept");
+                }
+                _ => self.queued.push_back(line),
+            }
+        }
+        Some(false)
+    }
+}
+
 pub fn run(source: Source) -> Result<()> {
     eprintln!("mira mcp: serving {} over stdio", source.describe());
     let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout().lock();
-    for line in stdin.lock().lines() {
+    let mut client =
+        Client { lines: stdin.lock().lines(), out: std::io::stdout().lock(), queued: VecDeque::new(), elicits: false, asked: 0 };
+    while let Some(line) = client.next() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
         }
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
-            write(&mut stdout, &json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "parse error"}}))?;
+            client.send(&json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "parse error"}}))?;
             continue;
         };
-        // Notifications carry no id and get no reply.
+        // Notifications carry no id and get no reply, and neither do stray
+        // answers to requests the server is no longer waiting on.
         let Some(id) = message.get("id").cloned() else { continue };
-        let method = message["method"].as_str().unwrap_or("");
+        let Some(method) = message["method"].as_str() else { continue };
         let params = &message["params"];
         let reply = match method {
-            "initialize" => Ok(json!({
-                "protocolVersion": params["protocolVersion"].as_str().unwrap_or(PROTOCOL),
-                "capabilities": { "tools": {} },
-                "serverInfo": { "name": "mira", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": format!(
-                    "The Mira site at {}. search returns paths with #sections; read one with read. items queries collections by field.",
-                    source.describe()
-                )
-            })),
+            "initialize" => {
+                client.elicits = params["capabilities"].get("elicitation").is_some();
+                Ok(json!({
+                    "protocolVersion": params["protocolVersion"].as_str().unwrap_or(PROTOCOL),
+                    "capabilities": { "tools": {} },
+                    "serverInfo": { "name": "mira", "version": env!("CARGO_PKG_VERSION") },
+                    "instructions": format!(
+                        "The Mira site at {}. search returns paths with #sections; read one with read. items queries collections by field.",
+                        source.describe()
+                    )
+                }))
+            }
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": tools() })),
-            "tools/call" => Ok(call(&source, params)),
+            "tools/list" => Ok(json!({ "tools": tools_for(&source) })),
+            "tools/call" => Ok(call(&source, params, &mut |m| client.confirm(m))),
             _ => Err(json!({"code": -32601, "message": format!("method not found: {method}")})),
         };
         let response = match reply {
             Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
             Err(error) => json!({"jsonrpc": "2.0", "id": id, "error": error}),
         };
-        write(&mut stdout, &response)?;
+        client.send(&response)?;
     }
     Ok(())
 }
 
-fn write(out: &mut impl Write, value: &Value) -> Result<()> {
-    writeln!(out, "{value}")?;
-    out.flush()?;
-    Ok(())
+/// The built-in tools, then one per action the site declares.
+fn tools_for(source: &Source) -> Value {
+    let mut list = tools();
+    let actions = source.refresh().and_then(|()| source.actions()).unwrap_or_default();
+    if let Value::Array(tools) = &mut list {
+        for action in actions {
+            let Some(name) = action["name"].as_str() else { continue };
+            let mut schema = action["input_schema"].clone();
+            // A deployed site's actions are data from the network: skip one
+            // whose schema is malformed rather than fail the whole list.
+            if !schema["properties"].is_object() {
+                continue;
+            }
+            schema["properties"]["confirm"] = json!({ "type": "string" });
+            let host = action["endpoint"].as_str().unwrap_or("").split('/').nth(2).unwrap_or("");
+            tools.push(json!({
+                "name": name,
+                "description": format!("{} Sends to {host} once the person you act for agrees.", action["description"].as_str().unwrap_or("")),
+                "inputSchema": schema,
+                "annotations": { "readOnlyHint": false, "destructiveHint": false, "openWorldHint": true }
+            }));
+        }
+    }
+    list
 }
 
 /// The tools, described in as few words as an agent needs to use them.
@@ -338,7 +439,7 @@ pub fn tools() -> Value {
     ])
 }
 
-fn call(source: &Source, params: &Value) -> Value {
+fn call(source: &Source, params: &Value, confirm: &mut dyn FnMut(&str) -> Option<bool>) -> Value {
     let result = (|| -> Result<String> {
         source.refresh()?;
         let args = &params["arguments"];
@@ -426,13 +527,98 @@ fn call(source: &Source, params: &Value) -> Value {
                     .collect();
                 Ok(serde_json::to_string(&items)?)
             }
-            other => bail!("unknown tool {other}"),
+            other => match source.actions()?.into_iter().find(|a| a["name"] == other) {
+                Some(action) => act(source, &action, args, confirm),
+                None => bail!("unknown tool {other}"),
+            },
         }
     })();
     match result {
         Ok(text) => json!({ "content": [{ "type": "text", "text": text }] }),
         Err(err) => json!({ "content": [{ "type": "text", "text": err.to_string() }], "isError": true }),
     }
+}
+
+/// Runs an action: checks the input, gets the person's agreement, then
+/// sends the input as a JSON `POST` to the action's endpoint.
+fn act(source: &Source, action: &Value, args: &Value, confirm: &mut dyn FnMut(&str) -> Option<bool>) -> Result<String> {
+    let name = action["name"].as_str().unwrap_or("");
+    let endpoint = action["endpoint"].as_str().unwrap_or("");
+    // A deployed site's actions are data from the network; check again.
+    if !mira_compiler::actions::endpoint_allowed(endpoint) {
+        bail!("{name} has an endpoint Mira will not send to: {endpoint}");
+    }
+    let mut input = args.as_object().cloned().unwrap_or_default();
+    let token = input.remove("confirm").and_then(|t| t.as_str().map(str::to_string));
+    let fields = action["input"].as_object().cloned().unwrap_or_default();
+    let body = Value::Object(mira_compiler::actions::validate(&fields, &Value::Object(input))?).to_string();
+
+    if action["confirm"] != json!(false) {
+        let summary = summarize(action, &body);
+        match (token, confirm(&summary)) {
+            (_, Some(true)) => {}
+            (_, Some(false)) => return Ok(format!("Not sent: the person declined. Nothing went to {endpoint}.")),
+            (Some(token), None) => {
+                let offered = source.pending.borrow_mut().remove(&token);
+                match offered {
+                    Some((at, n, b)) if n == name && b == body && at.elapsed() < CONFIRM_FOR => {}
+                    Some(_) => bail!("this confirmation was for different input or has expired; call {name} again without confirm"),
+                    None => bail!("unknown confirmation; call {name} again without confirm to get one"),
+                }
+            }
+            (None, None) => {
+                let token = new_token();
+                source.pending.borrow_mut().retain(|_, (at, _, _)| at.elapsed() < CONFIRM_FOR);
+                source.pending.borrow_mut().insert(token.clone(), (Instant::now(), name.to_string(), body));
+                return Ok(format!(
+                    "Not sent yet. Show the person you act for exactly this and ask whether to send it:\n\n{summary}\n\nIf they agree, call {name} again with the same input and confirm: \"{token}\". The confirmation works once, for this input, for 10 minutes."
+                ));
+            }
+        }
+    }
+
+    let mut response = source
+        .agent
+        .post(endpoint)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .send(body.as_str())
+        .map_err(|e| anyhow!("could not reach {endpoint}: {e}"))?;
+    let status = response.status().as_u16();
+    // Decoded after the cut, so a character split at the limit costs one
+    // character, not the whole reply.
+    let mut bytes = Vec::new();
+    let _ = response.body_mut().as_reader().take(REPLY_BYTES).read_to_end(&mut bytes);
+    let reply = String::from_utf8_lossy(&bytes);
+    match status {
+        200..=299 => Ok(format!("Sent. {endpoint} answered HTTP {status}.\n{}", reply.trim())),
+        _ => bail!("{endpoint} answered HTTP {status}; the action may not have happened.\n{}", reply.trim()),
+    }
+}
+
+/// What an action will do, for the person to agree to.
+fn summarize(action: &Value, body: &str) -> String {
+    let mut out = format!("{}\nSend to: {}", action["description"].as_str().unwrap_or(""), action["endpoint"].as_str().unwrap_or(""));
+    if let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(body) {
+        for (field, value) in fields {
+            let shown = match value {
+                Value::String(s) => s,
+                other => other.to_string(),
+            };
+            out.push_str(&format!("\n{field}: {shown}"));
+        }
+    }
+    out
+}
+
+/// A random, single use confirmation token.
+fn new_token() -> String {
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    let first = hasher.finish();
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(first);
+    format!("{first:016x}{:016x}", hasher.finish())
 }
 
 /// Collection and data file names: letters, digits, `-`, and `_`.
@@ -938,7 +1124,7 @@ mod tests {
         let project = Source::project(&root).unwrap();
         let site = Source::site(&format!("http://127.0.0.1:{port}")).unwrap();
         let ask = |source: &Source, name: &str, arguments: Value| {
-            let reply = call(source, &json!({ "name": name, "arguments": arguments }));
+            let reply = call(source, &json!({ "name": name, "arguments": arguments }), &mut |_| None);
             let text = reply["content"][0]["text"].as_str().unwrap().to_string();
             (reply["isError"] == json!(true), text)
         };
@@ -969,5 +1155,78 @@ mod tests {
         std::fs::write(root.join("data/team.json"), r#"[{"name": "Grace"}]"#).unwrap();
         let (_, team) = ask(&project, "data", json!({ "name": "team" }));
         assert!(team.contains("Grace"), "{team}");
+    }
+
+    /// Declares an action, then books through it: refused when the input is
+    /// wrong, held until confirmed, sent once, and never resent with a
+    /// spent confirmation.
+    #[test]
+    fn actions_send_only_after_confirmation() {
+        let endpoint = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = endpoint.server_addr().to_ip().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for mut request in endpoint.incoming_requests() {
+                let mut body = String::new();
+                request.as_reader().read_to_string(&mut body).unwrap();
+                tx.send(format!("{} {}", request.method(), body)).unwrap();
+                let _ = request.respond(tiny_http::Response::from_string(r#"{"booking":"B-17"}"#).with_status_code(201));
+            }
+        });
+
+        let root = std::env::temp_dir().join(format!("mira-act-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        mira_compiler::scaffold::scaffold(&root).unwrap();
+        let config = std::fs::read_to_string(root.join("mira.config.json")).unwrap();
+        let mut config: Value = serde_json::from_str(&config).unwrap();
+        config["actions"] = json!({ "book_table": {
+            "description": "Book a table for dinner.",
+            "input": { "name": "string", "party_size": "number", "time": "time", "notes": "string?" },
+            "endpoint": format!("http://127.0.0.1:{port}/book")
+        }});
+        std::fs::write(root.join("mira.config.json"), config.to_string()).unwrap();
+
+        let source = Source::project(&root).unwrap();
+        let tools = tools_for(&source);
+        let tool = tools.as_array().unwrap().iter().find(|t| t["name"] == "book_table").expect("action tool");
+        assert_eq!(tool["inputSchema"]["required"], json!(["name", "party_size", "time"]));
+
+        let ask = |arguments: Value, answer: Option<bool>| {
+            let reply = call(&source, &json!({ "name": "book_table", "arguments": arguments }), &mut |_| answer);
+            (reply["isError"] == json!(true), reply["content"][0]["text"].as_str().unwrap().to_string())
+        };
+        let input = json!({ "name": "Ada", "party_size": 2, "time": "19:30" });
+
+        let (err, text) = ask(json!({ "name": "Ada", "party_size": "two", "time": "19:30" }), None);
+        assert!(err && text.contains("party_size must be a number"), "{text}");
+
+        let (err, text) = ask(input.clone(), None);
+        assert!(!err && text.starts_with("Not sent yet") && text.contains("party_size: 2"), "{text}");
+        let token = text.split("confirm: \"").nth(1).unwrap().split('"').next().unwrap().to_string();
+        assert!(rx.try_recv().is_err(), "nothing is sent before confirmation");
+
+        let mut changed = input.clone();
+        changed["party_size"] = json!(8);
+        changed["confirm"] = json!(token.clone());
+        assert!(ask(changed, None).0, "a confirmation covers only the input it was given for");
+
+        let (err, text) = ask(json!({ "name": "Ada", "party_size": 2, "time": "19:30" }), None);
+        let token = text.split("confirm: \"").nth(1).unwrap().split('"').next().unwrap().to_string();
+        assert!(!err);
+        let mut confirmed = input.clone();
+        confirmed["confirm"] = json!(token);
+        let (err, text) = ask(confirmed.clone(), None);
+        assert!(!err && text.contains("HTTP 201") && text.contains("B-17"), "{text}");
+        let sent = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(sent, r#"POST {"name":"Ada","party_size":2,"time":"19:30"}"#);
+        assert!(ask(confirmed, None).0, "a confirmation works once");
+
+        // A client that asks the person itself: declined sends nothing.
+        let (err, text) = ask(input.clone(), Some(false));
+        assert!(!err && text.starts_with("Not sent: the person declined"), "{text}");
+        assert!(rx.try_recv().is_err());
+        let (err, text) = ask(input, Some(true));
+        assert!(!err && text.starts_with("Sent."), "{text}");
+        assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
     }
 }

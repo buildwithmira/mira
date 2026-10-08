@@ -52,6 +52,8 @@ If `mira` is already on your `PATH`, use `"command": "mira"` and drop the first 
 | `data` | `name`, optional `path` such as `hours.monday` | A data file from `data/`, or one value in it, as JSON |
 | `media` | optional `page` | Images and video with alt text, captions, sizes, and file URLs |
 
+Each [action](actions.md) the site declares, such as `book_table`, is a tool too, with an input schema built from its fields.
+
 Tool failures, such as an unknown page or collection, come back as tool results with `isError: true` and a message the agent can act on, such as the list of sections a page has.
 
 ## Read less
@@ -118,7 +120,8 @@ mira audit --agent --budget 1500 --json
 
 - `--url` accepts `https://` addresses, and `http://` only for `localhost`. It follows no redirects, stops after 20 seconds, and reads at most 16 MB per file.
 - Page paths, collection names, and data file names are checked before use, so a request cannot read anything outside the site or its build folder.
-- The server only reads. It never writes to the project, and in project mode it builds into `.mira/mcp/`, never `dist/` or your host config files.
+- The server never writes to the project. In project mode it builds into `.mira/mcp/`, never `dist/` or your host config files, and with `--url` it only reads the deployed site's files.
+- Only [action](actions.md) tools send anything: a JSON `POST` to the endpoint the site declares, after the person agrees, unless the action sets `"confirm": false`.
 - Logs go to standard error, so they never mix with protocol messages.
 
 ## Protocol details

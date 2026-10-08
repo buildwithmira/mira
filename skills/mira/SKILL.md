@@ -126,6 +126,8 @@ Every Mira site can be read over MCP: pages as Markdown, search, collection entr
 
 Use `--root <dir>` instead of `--url` for a project on disk. Tools: `site`, `pages`, `search`, `read` (a page, or one section with `path#section`), `items` (query a collection by field), `data`, and `media`. Reading a deployed site with `--url` needs Mira 0.2.0 or later.
 
+Actions let agents act on a site, such as booking a table. Declare them in `mira.config.json` under `actions`, each with a `description`, typed `input` fields (collection types), and an HTTPS `endpoint` that receives the input as a JSON `POST`. `mira mcp` offers each as a tool and sends only after the person agrees. See `references/actions.md`.
+
 Run `mira audit --agent` after changing content to see what each page costs an agent to read; split pages over 1,000 tokens with `##` headings.
 
 ## References
@@ -142,7 +144,7 @@ Run `mira audit --agent` after changing content to see what each page costs an a
 | Images and video | `references/media.md` |
 | Search and performance | `references/search.md`, `references/performance.md` |
 | SEO and agent files | `references/seo.md`, `references/agents.md` |
-| MCP | `references/mcp.md` |
+| MCP and actions | `references/mcp.md`, `references/actions.md` |
 | Coding agents and JSON output | `references/coding-agents.md` |
 | Security and build checks | `references/security.md`, `references/errors.md` |
 | Every config key and command | `references/configuration.md`, `references/cli.md` |
