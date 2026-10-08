@@ -5,6 +5,7 @@ All notable changes to Mira are listed here. The format follows [Keep a Changelo
 ## Unreleased
 
 - Fixed: `mira dev` and `mira mcp` no longer rewrite host config files such as `netlify.toml` in the project root. They pointed those files at a private build folder, so a deploy after running `mira dev` could publish the wrong directory.
+- Fixed: code blocks in Markdown keep the space between them and the text around them, and inline code no longer breaks across lines in the middle of a token such as `--help`. On screens narrower than 40rem, wide tables scroll inside themselves and long inline code wraps, so neither makes the page scroll sideways.
 
 ## 0.1.2
 
