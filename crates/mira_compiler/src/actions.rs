@@ -96,6 +96,45 @@ pub fn endpoint_allowed(url: &str) -> bool {
     (url.starts_with("https://") || local) && !authority.is_empty() && !authority.contains('@') && !url.contains([' ', '\\', '\n'])
 }
 
+/// Whether `url` points at this machine or a private network: `localhost`,
+/// loopback, private, link-local, and unspecified addresses. A deployed
+/// site's actions must never reach these, or visiting a hostile site with
+/// an agent could send requests to services on the agent's own network.
+pub fn endpoint_is_local(url: &str) -> bool {
+    use std::net::IpAddr;
+    let authority = url.split("://").nth(1).unwrap_or("").split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit('@').next().unwrap_or("");
+    let host = match host.strip_prefix('[') {
+        Some(rest) => rest.split(']').next().unwrap_or(""),
+        None => host.rsplit_once(':').map_or(host, |(h, port)| if port.chars().all(|c| c.is_ascii_digit()) { h } else { host }),
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    host.parse::<IpAddr>().is_ok_and(is_local_ip)
+}
+
+/// Loopback, private, link-local, unspecified, and unique local addresses,
+/// including IPv4 addresses mapped into IPv6. Checked again on the address
+/// a request actually connects to, since a public name can resolve to any
+/// of these.
+pub fn is_local_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::{IpAddr, Ipv4Addr};
+    let v4 = |ip: Ipv4Addr| ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified() || ip.octets()[0] == 0;
+    match ip {
+        IpAddr::V4(ip) => v4(ip),
+        IpAddr::V6(ip) => {
+            let first = ip.segments()[0];
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || first & 0xfe00 == 0xfc00
+                || first & 0xffc0 == 0xfe80
+                || ip.to_ipv4_mapped().is_some_and(v4)
+        }
+    }
+}
+
 /// The published `/_mira/actions.json`: every action with its input types,
 /// a JSON Schema for its input, its endpoint, and whether it confirms.
 pub fn index(actions: &BTreeMap<String, Action>) -> Value {
@@ -183,6 +222,25 @@ mod tests {
         }
         assert!(endpoint_allowed("http://localhost:8787/book"));
         assert!(!endpoint_allowed("http://localhost.evil.dev/"));
+        for local in [
+            "http://localhost:8787/book",
+            "https://localhost/x",
+            "https://api.localhost/x",
+            "https://127.0.0.1/x",
+            "https://10.0.0.5:8443/x",
+            "https://192.168.1.1/x",
+            "https://172.20.0.1/x",
+            "https://169.254.169.254/latest",
+            "https://[::1]/x",
+            "https://[fd00::1]/x",
+            "https://[::ffff:127.0.0.1]/x",
+            "https://0.0.0.0/x",
+        ] {
+            assert!(endpoint_is_local(local), "{local}");
+        }
+        for public in ["https://api.example.com/b", "https://8.8.8.8/x", "https://[2606:4700::1111]/x", "https://localhost.evil.dev/"] {
+            assert!(!endpoint_is_local(public), "{public}");
+        }
     }
 
     #[test]

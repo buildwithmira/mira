@@ -1484,10 +1484,15 @@ mod tests {
         });
         // Supabase and GraphQL requests are cached by URL and body too.
         let supabase = "https://abcd.supabase.co/rest/v1/staff?select=name%2Crole&active=eq.true&limit=1000&offset=0";
-        cache(supabase, json!([{ "name": "Ada", "role": "Chef", "id": "ada" }]));
+        let key_headers = [("apikey".to_string(), "anon".to_string()), ("Authorization".to_string(), "Bearer anon".to_string())];
+        cache(&crate::sources::cache_key(supabase, None, &key_headers), json!([{ "name": "Ada", "role": "Chef", "id": "ada" }]));
         let graphql = "https://shop.example.test/graphql";
         let query = "{ products { nodes { handle title } } }";
-        let key = crate::sources::cache_key(graphql, Some(&json!({ "query": query }).to_string()));
+        let key = crate::sources::cache_key(
+            graphql,
+            Some(&json!({ "query": query }).to_string()),
+            &[("Content-Type".to_string(), "application/json".to_string())],
+        );
         cache(&key, json!({ "data": { "products": { "nodes": [{ "handle": "beans", "title": "House beans" }] } } }));
         // SAFETY: the variable name is unique to this test.
         unsafe { std::env::set_var("MIRA_TEST_SUPABASE_KEY", "anon") };

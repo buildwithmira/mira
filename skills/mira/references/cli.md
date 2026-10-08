@@ -78,7 +78,7 @@ mira audit --agent [--root <dir>] [--budget <tokens>] [--json]
 | `--budget` | `1000` | Tokens a page may use before it is flagged |
 | `--json` | off | Print the report as JSON |
 
-Builds the site into `.mira/audit/` and lists what each page costs an agent to read, in approximate tokens at four characters each: its Markdown copy, its search index entry, and its largest section. It also reports the size of `llms.txt`, `llms-full.txt`, and the MCP tool list. Pages over the budget are flagged with what to change, such as adding headings so agents can read them a section at a time.
+Builds the site into `.mira/audit/` and lists what each page costs an agent to read, in approximate tokens at four characters each: its Markdown copy, its search index entry, and its largest section. It also reports the size of `llms.txt`, `llms-full.txt`, and the MCP tool list. Pages over the budget are flagged with what to change, such as adding headings so agents can read them a section at a time, and so are pages without a Markdown copy. The audit refuses to run when `agents.twins` is `false`, since agents could not read any page. With `--json`, `passed` is `false` when any page is over budget or has no Markdown copy.
 
 ## Terminal output
 

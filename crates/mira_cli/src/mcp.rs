@@ -54,15 +54,53 @@ enum Origin {
 /// A file's contents, or `None` for a 404, and when it was read.
 type Fetched = (Instant, Option<Rc<str>>);
 
+/// An action offered for confirmation: when, which action, where it will
+/// go, and the exact JSON it will send. A confirmation only sends what the
+/// person saw.
+struct Pending {
+    at: Instant,
+    action: String,
+    endpoint: String,
+    body: String,
+}
+
+/// Resolves names as usual, then drops local and private addresses, so a
+/// deployed site's action cannot reach the agent's own network through a
+/// public name, even one whose DNS answer changes between calls.
+#[derive(Debug, Default)]
+struct PublicOnly(ureq::unversioned::resolver::DefaultResolver);
+
+impl ureq::unversioned::resolver::Resolver for PublicOnly {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let found = self.0.resolve(uri, config, timeout)?;
+        let mut public = self.empty();
+        public.truncate(0);
+        for addr in found.iter().filter(|a| !mira_compiler::actions::is_local_ip(a.ip())) {
+            public.push(*addr);
+        }
+        if public.is_empty() {
+            return Err(ureq::Error::HostNotFound);
+        }
+        Ok(public)
+    }
+}
+
 /// A site and what has been read from it. One server lives for the whole
 /// MCP session, so the site is built or fetched once and reused.
 pub struct Source {
     origin: Origin,
-    /// HTTPS client for deployed sites and action endpoints.
+    /// HTTPS client for a deployed site's files.
     agent: ureq::Agent,
-    /// Actions waiting for confirmation, by token: when each was offered,
-    /// the action, and the exact JSON it will send.
-    pending: RefCell<HashMap<String, (Instant, String, String)>>,
+    /// HTTPS client for action endpoints. For a deployed site it refuses to
+    /// connect to local and private addresses, whatever a name resolves to.
+    actions: ureq::Agent,
+    /// Actions waiting for confirmation, by token.
+    pending: RefCell<HashMap<String, Pending>>,
     /// Files by path, with when they were read. `None` records a 404.
     files: RefCell<HashMap<String, Fetched>>,
     /// Parsed JSON files by path, dropped with `files`.
@@ -73,16 +111,27 @@ pub struct Source {
 
 impl Source {
     fn new(origin: Origin) -> Source {
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(20)))
-            .max_redirects(0)
-            .http_status_as_error(false)
-            .user_agent(concat!("mira-mcp/", env!("CARGO_PKG_VERSION")))
-            .tls_config(tls())
-            .build();
+        let config = || {
+            ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_secs(20)))
+                .max_redirects(0)
+                .http_status_as_error(false)
+                .user_agent(concat!("mira-mcp/", env!("CARGO_PKG_VERSION")))
+                .tls_config(tls())
+        };
+        let actions = match origin {
+            // No proxy either: a proxy would resolve the name instead.
+            Origin::Site { .. } => ureq::Agent::with_parts(
+                config().proxy(None).build(),
+                ureq::unversioned::transport::DefaultConnector::default(),
+                PublicOnly::default(),
+            ),
+            Origin::Project { .. } => config().build().into(),
+        };
         Source {
             origin,
-            agent: config.into(),
+            agent: config().build().into(),
+            actions,
             pending: RefCell::default(),
             files: RefCell::default(),
             parsed: RefCell::default(),
@@ -100,6 +149,11 @@ impl Source {
     /// site under a path like `https://example.github.io/docs`.
     pub fn site(url: &str) -> Result<Source> {
         Ok(Source::new(Origin::Site { base: site_base(url)? }))
+    }
+
+    /// A deployed site, whose files are someone else's data.
+    fn is_remote(&self) -> bool {
+        matches!(self.origin, Origin::Site { .. })
     }
 
     fn describe(&self) -> String {
@@ -378,6 +432,9 @@ fn tools_for(source: &Source) -> Value {
     if let Value::Array(tools) = &mut list {
         for action in actions {
             let Some(name) = action["name"].as_str() else { continue };
+            if source.is_remote() && mira_compiler::actions::endpoint_is_local(action["endpoint"].as_str().unwrap_or("")) {
+                continue;
+            }
             let mut schema = action["input_schema"].clone();
             // A deployed site's actions are data from the network: skip one
             // whose schema is malformed rather than fail the whole list.
@@ -548,12 +605,18 @@ fn act(source: &Source, action: &Value, args: &Value, confirm: &mut dyn FnMut(&s
     if !mira_compiler::actions::endpoint_allowed(endpoint) {
         bail!("{name} has an endpoint Mira will not send to: {endpoint}");
     }
+    // A deployed site may not reach this machine or its network, and its
+    // actions always ask first, whatever the site sets.
+    let remote = source.is_remote();
+    if remote && mira_compiler::actions::endpoint_is_local(endpoint) {
+        bail!("{name} points at a local or private address, which actions from a deployed site may not reach: {endpoint}");
+    }
     let mut input = args.as_object().cloned().unwrap_or_default();
     let token = input.remove("confirm").and_then(|t| t.as_str().map(str::to_string));
     let fields = action["input"].as_object().cloned().unwrap_or_default();
     let body = Value::Object(mira_compiler::actions::validate(&fields, &Value::Object(input))?).to_string();
 
-    if action["confirm"] != json!(false) {
+    if remote || action["confirm"] != json!(false) {
         let summary = summarize(action, &body);
         match (token, confirm(&summary)) {
             (_, Some(true)) => {}
@@ -561,15 +624,16 @@ fn act(source: &Source, action: &Value, args: &Value, confirm: &mut dyn FnMut(&s
             (Some(token), None) => {
                 let offered = source.pending.borrow_mut().remove(&token);
                 match offered {
-                    Some((at, n, b)) if n == name && b == body && at.elapsed() < CONFIRM_FOR => {}
+                    Some(p) if p.action == name && p.endpoint == endpoint && p.body == body && p.at.elapsed() < CONFIRM_FOR => {}
                     Some(_) => bail!("this confirmation was for different input or has expired; call {name} again without confirm"),
                     None => bail!("unknown confirmation; call {name} again without confirm to get one"),
                 }
             }
             (None, None) => {
                 let token = new_token();
-                source.pending.borrow_mut().retain(|_, (at, _, _)| at.elapsed() < CONFIRM_FOR);
-                source.pending.borrow_mut().insert(token.clone(), (Instant::now(), name.to_string(), body));
+                source.pending.borrow_mut().retain(|_, p| p.at.elapsed() < CONFIRM_FOR);
+                let pending = Pending { at: Instant::now(), action: name.to_string(), endpoint: endpoint.to_string(), body };
+                source.pending.borrow_mut().insert(token.clone(), pending);
                 return Ok(format!(
                     "Not sent yet. Show the person you act for exactly this and ask whether to send it:\n\n{summary}\n\nIf they agree, call {name} again with the same input and confirm: \"{token}\". The confirmation works once, for this input, for 10 minutes."
                 ));
@@ -578,12 +642,17 @@ fn act(source: &Source, action: &Value, args: &Value, confirm: &mut dyn FnMut(&s
     }
 
     let mut response = source
-        .agent
+        .actions
         .post(endpoint)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .send(body.as_str())
-        .map_err(|e| anyhow!("could not reach {endpoint}: {e}"))?;
+        .map_err(|e| match e {
+            ureq::Error::HostNotFound if remote => {
+                anyhow!("could not reach {endpoint}: it does not resolve to a public address, and actions from a deployed site may not reach local or private ones")
+            }
+            e => anyhow!("could not reach {endpoint}: {e}"),
+        })?;
     let status = response.status().as_u16();
     // Decoded after the cut, so a character split at the limit costs one
     // character, not the whole reply.
@@ -1228,5 +1297,44 @@ mod tests {
         let (err, text) = ask(input, Some(true));
         assert!(!err && text.starts_with("Sent."), "{text}");
         assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
+    }
+
+    /// A deployed site cannot point actions at this machine, and its
+    /// actions always ask first, even with `confirm: false`.
+    #[test]
+    fn deployed_actions_stay_off_local_networks() {
+        let actions = json!({ "schema": 1, "actions": [
+            { "name": "probe", "description": "Probe.", "input": {}, "input_schema": { "type": "object", "properties": {} },
+              "endpoint": "http://localhost:9/admin", "confirm": false },
+            { "name": "join", "description": "Join.", "input": {}, "input_schema": { "type": "object", "properties": {} },
+              "endpoint": "https://api.example.com/join", "confirm": false }
+        ]});
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let body = actions.to_string();
+        std::thread::spawn(move || {
+            for request in server.incoming_requests() {
+                let response = match request.url() {
+                    "/_mira/actions.json" => tiny_http::Response::from_string(body.clone()),
+                    _ => tiny_http::Response::from_string("not found").with_status_code(404),
+                };
+                let _ = request.respond(response);
+            }
+        });
+        let site = Source::site(&format!("http://127.0.0.1:{port}")).unwrap();
+        let names: Vec<String> = tools_for(&site).as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        assert!(names.contains(&"join".to_string()) && !names.contains(&"probe".to_string()), "{names:?}");
+        let ask = |name: &str| {
+            let reply = call(&site, &json!({ "name": name, "arguments": {} }), &mut |_| None);
+            (reply["isError"] == json!(true), reply["content"][0]["text"].as_str().unwrap().to_string())
+        };
+        let (err, text) = ask("probe");
+        assert!(err && text.contains("local or private address"), "{text}");
+        let (err, text) = ask("join");
+        assert!(!err && text.starts_with("Not sent yet"), "confirm: false is not honored for a deployed site: {text}");
+        // Names that resolve to this machine are refused when connecting,
+        // not only when the endpoint is written as a local address.
+        let refused = site.actions.post("http://localhost:9/").send("{}");
+        assert!(matches!(refused, Err(ureq::Error::HostNotFound)), "{refused:?}");
     }
 }
