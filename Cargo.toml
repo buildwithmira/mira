@@ -7,7 +7,7 @@ version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/buildwithmira/mira"
-homepage = "https://github.com/buildwithmira/mira"
+homepage = "https://miraweb.in"
 authors = ["Om Rajguru <hi@omrajguru.in>"]
 publish = false
 
