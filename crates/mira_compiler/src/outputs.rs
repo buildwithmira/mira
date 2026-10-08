@@ -152,6 +152,16 @@ pub fn llms_txt(config: &Config, pages: &[PageMeta], has_media: bool) -> String 
         ));
     }
     out.push_str(&format!("- [Full text]({}): every page as Markdown in one file\n", data("/llms-full.txt")));
+    if config.agents.content {
+        out.push_str(&format!(
+            "- [Content index]({}): the site's collections, with each entry's fields, and its data files\n",
+            data("/_mira/content.json")
+        ));
+    }
+    let site = config.site.url.as_deref().map_or_else(|| "https://example.com".to_string(), |u| u.trim_end_matches('/').to_string());
+    out.push_str(&format!(
+        "\n## MCP\n\nAny MCP client can read this site's pages, content, data, and media:\n\n```\nnpx -y @miraframework/mira mcp --url {site}\n```\n"
+    ));
     out
 }
 

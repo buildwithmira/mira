@@ -55,6 +55,11 @@ pub struct Agents {
     pub answers: String,
     /// Crawlers that collect pages to train AI models: `allow` or `disallow`.
     pub training: String,
+    /// Publish the site's structured content for agents: collection entries
+    /// with their fields under `/_mira/collections/`, and data files under
+    /// `/_mira/data/`. `mira mcp` serves them locally and from any deployed
+    /// URL. Pages and search are always available.
+    pub content: bool,
 }
 
 impl Default for Agents {
@@ -65,6 +70,7 @@ impl Default for Agents {
             search: "allow".into(),
             answers: "allow".into(),
             training: "allow".into(),
+            content: true,
         }
     }
 }

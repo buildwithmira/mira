@@ -72,11 +72,18 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Serve the site's content over MCP on standard input and output.
+    /// Serve a site's pages, content, data, and media over MCP on standard
+    /// input and output.
+    ///
+    /// Reads the project in --root, rebuilt before each answer, or with --url
+    /// any deployed Mira site, from the files every build publishes.
     Mcp {
         /// Project root.
         #[arg(long, default_value = ".")]
         root: PathBuf,
+        /// A deployed Mira site to serve instead, such as https://example.com.
+        #[arg(long, conflicts_with = "root")]
+        url: Option<String>,
     },
 }
 
@@ -86,14 +93,17 @@ fn main() -> ExitCode {
         Command::New { dir, .. } => (dir.clone(), false),
         Command::Build { root, json, .. } => (root.clone(), *json),
         Command::Migrate { dest, json, .. } => (dest.clone(), *json),
-        Command::Dev { root, .. } | Command::Mcp { root } => (root.clone(), false),
+        Command::Dev { root, .. } | Command::Mcp { root, .. } => (root.clone(), false),
     };
     let result = match cli.command {
         Command::New { dir, no_hints } => new(&dir, no_hints),
         Command::Build { root, out, json, timings } => run_build(&root, &out, json, timings),
         Command::Migrate { source, dest, from, dry_run, json } => run_migrate(source, dest, from.as_deref(), dry_run, json),
         Command::Dev { root, port } => dev::run(&root, port),
-        Command::Mcp { root } => mcp::run(&root),
+        Command::Mcp { root, url } => match url {
+            Some(url) => mcp::Source::site(&url).and_then(mcp::run),
+            None => mcp::Source::project(&root).and_then(mcp::run),
+        },
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
