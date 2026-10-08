@@ -81,6 +81,21 @@ Run `mira <command> --help` for options.
 | `read_page` | One page as Markdown, with its title and canonical URL |
 | `search` | The best matching pages for a query, with snippets |
 
+## Agent skills
+
+Two skills teach coding agents to work with Mira. Each includes the full docs as reference files.
+
+```bash
+npx skills add buildwithmira/mira
+```
+
+| Skill | For |
+| --- | --- |
+| `mira` | Building, editing, checking, and deploying Mira sites, and reading them over MCP |
+| `mira-migrate` | Moving a site from another framework and finishing what `mira migrate` lists for review |
+
+Install one with `--skill mira` or `--skill mira-migrate`.
+
 ## Project layout
 
 ```text
@@ -114,6 +129,7 @@ Supported hosts: `vercel`, `netlify`, `cloudflare`, `github`, `firebase`, `rende
 | `crates/mira_cli` | The `mira` binary: commands, dev server, MCP server, terminal output |
 | `crates/mira_compiler/runtime` | The client runtime and base CSS embedded in every build |
 | `crates/mira_compiler/starter` | The template used by `mira new` |
+| `skills/` | Agent skills, installable with `npx skills add buildwithmira/mira` |
 | `npm/` | The npm packages: `@miraframework/mira`, its per-platform binaries, and `create-mira` |
 | `tools/check_host.py` | Checks a deployed site's status codes, headers, and content types |
 

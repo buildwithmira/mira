@@ -4,6 +4,8 @@ All notable changes to Mira are listed here. The format follows [Keep a Changelo
 
 ## Unreleased
 
+- Agent skills: `mira` for building and deploying Mira sites, and `mira-migrate` for moving sites to Mira. Install with `npx skills add buildwithmira/mira`.
+
 ## 0.1.2
 
 - The npm package page shows the full README, including how to connect `mira mcp` to an MCP client and how to deploy to each supported host.
