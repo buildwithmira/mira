@@ -9,7 +9,7 @@
     "url": "git+https://github.com/buildwithmira/mira.git",
     "directory": "npm/mira"
   },
-  "homepage": "https://github.com/buildwithmira/mira#readme",
+  "homepage": "https://miraweb.in",
   "bugs": "https://github.com/buildwithmira/mira/issues",
   "keywords": ["static-site-generator", "ssg", "markdown", "view-transitions", "cli"],
   "bin": {
