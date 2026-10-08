@@ -131,6 +131,12 @@
   .prose img { border-radius: var(--radius-lg); }
   .prose table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
   .prose :is(th, td) { border-bottom: 1px solid var(--line); padding: var(--space-2) var(--space-3); text-align: left; }
+  /* On narrow screens a wide table scrolls inside itself, and long inline
+     code may wrap, so neither widens the page. */
+  @media (max-width: 40rem) {
+    .prose table { display: block; overflow-x: auto; }
+    .prose :not(pre) > code { white-space: normal; overflow-wrap: anywhere; }
+  }
 }
 
 @layer mira.transitions {
