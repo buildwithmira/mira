@@ -4,6 +4,8 @@ All notable changes to Mira are listed here. The format follows [Keep a Changelo
 
 ## Unreleased
 
+- Fixed: `mira dev` and `mira mcp` no longer rewrite host config files such as `netlify.toml` in the project root. They pointed those files at a private build folder, so a deploy after running `mira dev` could publish the wrong directory.
+
 ## 0.1.2
 
 - The npm package page shows the full README, including how to connect `mira mcp` to an MCP client and how to deploy to each supported host.

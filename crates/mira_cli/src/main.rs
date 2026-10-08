@@ -131,7 +131,7 @@ fn run_build(root: &Path, out: &Path, json: bool, timings: bool) -> Result<()> {
     if !json {
         ui::header("build", &root.display().to_string());
     }
-    let report = build(&BuildOptions { root: root.to_path_buf(), out: root.join(out), dev: false })?;
+    let report = build(&BuildOptions { root: root.to_path_buf(), out: root.join(out), dev: false, host_config: true })?;
     if json {
         println!("{}", serde_json::json!({ "ok": true, "schema": 1, "report": report }));
     } else {
@@ -159,7 +159,11 @@ hint: use nextjs, astro, hugo, jekyll, docusaurus, gatsby, eleventy, vitepress, 
     }
     let report = migrate(&MigrateOptions { source: source.clone(), dest: dest.clone(), from, dry_run })?;
     // A migration is only done when the new project builds.
-    let built = if dry_run { None } else { Some(build(&BuildOptions { root: dest.clone(), out: dest.join("dist"), dev: false })) };
+    let built = if dry_run {
+        None
+    } else {
+        Some(build(&BuildOptions { root: dest.clone(), out: dest.join("dist"), dev: false, host_config: true }))
+    };
     if json {
         let build = built.as_ref().map(|b| match b {
             Ok(r) => serde_json::json!({ "ok": true, "pages": r.pages.len(), "warnings": r.warnings }),
