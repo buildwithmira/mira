@@ -27,6 +27,10 @@ pub struct BuildOptions {
     pub out: PathBuf,
     /// Dev builds include drafts and the reload client.
     pub dev: bool,
+    /// Write the hosts' config files, such as `vercel.json`, to the project
+    /// root. Only `mira build` does: dev and MCP builds use a private output
+    /// folder, which those files must never point at.
+    pub host_config: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -131,7 +135,7 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     let build_id = format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis());
 
     let out_rel = opts.out.strip_prefix(root).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-    if !config.hosts.is_empty() && out_rel.is_empty() {
+    if opts.host_config && !config.hosts.is_empty() && out_rel.is_empty() {
         bail!("mira.config.json: hosts need the output folder inside the project\nhint: use an --out path under the project root");
     }
     let host_files = crate::hosts::files(&config, &out_rel)?;
@@ -319,8 +323,10 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     if redirect_pages > 0 {
         outputs.push(format!("{redirect_pages} redirect {}", if redirect_pages == 1 { "page" } else { "pages" }));
     }
-    for name in crate::hosts::write_root(&host_files, root)? {
-        outputs.push(format!("{name} (project root)"));
+    if opts.host_config {
+        for name in crate::hosts::write_root(&host_files, root)? {
+            outputs.push(format!("{name} (project root)"));
+        }
     }
     if media_files > 0 {
         outputs.push(format!("media.json ({media_files} {})", if media_files == 1 { "file" } else { "files" }));
@@ -1232,4 +1238,28 @@ fn rel_path(root: &Path, path: &Path) -> PathBuf {
 
 fn rel(root: &Path, path: &Path) -> String {
     rel_path(root, path).display().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_full_builds_write_host_config() {
+        let root = std::env::temp_dir().join(format!("mira-build-{}-host-config", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        crate::scaffold::scaffold(&root).unwrap();
+        let config = root.join("mira.config.json");
+        let mut value: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+        value["hosts"] = serde_json::json!({ "netlify": {} });
+        std::fs::write(&config, value.to_string()).unwrap();
+
+        // A dev build into a private folder leaves the project root alone.
+        build(&BuildOptions { root: root.clone(), out: root.join(".mira/dev"), dev: true, host_config: false }).unwrap();
+        assert!(!root.join("netlify.toml").exists());
+
+        build(&BuildOptions { root: root.clone(), out: root.join("dist"), dev: false, host_config: true }).unwrap();
+        let toml = std::fs::read_to_string(root.join("netlify.toml")).unwrap();
+        assert!(toml.contains("publish = \"dist\""), "{toml}");
+    }
 }

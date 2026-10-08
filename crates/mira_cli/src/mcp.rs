@@ -93,7 +93,7 @@ fn tools() -> Value {
 
 fn call(root: &Path, out: &Path, params: &Value) -> Value {
     let result = (|| -> Result<String> {
-        build(&BuildOptions { root: root.to_path_buf(), out: out.to_path_buf(), dev: false })?;
+        build(&BuildOptions { root: root.to_path_buf(), out: out.to_path_buf(), dev: false, host_config: false })?;
         let index: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(out.join("_mira/search.json"))?)?;
         let args = &params["arguments"];
         match params["name"].as_str().unwrap_or("") {

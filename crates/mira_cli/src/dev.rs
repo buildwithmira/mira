@@ -40,7 +40,7 @@ impl State {
 pub fn run(root: &Path, port: u16) -> Result<()> {
     let root = std::path::absolute(root)?;
     let out = root.join(".mira").join("dev");
-    let opts = BuildOptions { root: root.clone(), out: out.clone(), dev: true };
+    let opts = BuildOptions { root: root.clone(), out: out.clone(), dev: true, host_config: false };
     ui::header("dev", &root.display().to_string());
 
     let state = Arc::new(State { status: Mutex::new(Status::default()), changed: Condvar::new() });
