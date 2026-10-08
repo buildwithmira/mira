@@ -113,8 +113,9 @@ jobs:
           node npm/scripts/stage.mjs artifacts/npm staged $tag > order.txt
           cat order.txt
       # Trusted publishing: npm verifies this workflow through GitHub's OIDC
-      # token, so no npm token is stored anywhere. It needs npm 11.5.1 or
-      # later, and adds provenance on its own.
+      # token, so no npm token is stored anywhere. Versions are staged, not
+      # published: each one goes live only after a maintainer approves it on
+      # npmjs.com with 2FA. Staging needs a recent npm.
       - name: Update npm
         run: npm install -g npm@11.21.0 && npm --version
       - name: Publish
@@ -130,5 +131,12 @@ jobs:
             if [[ "$PUBLISH" == "true" ]] && npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version is already published"; continue
             fi
-            (cd "$dir" && npm publish $flags)
+            (cd "$dir" && npm stage publish $flags)
           done < order.txt
+          if [[ "$PUBLISH" == "true" ]]; then
+            {
+              echo "### npm: staged for approval"
+              echo "Approve each package on npmjs.com under Staged Packages, platform packages first:"
+              sed 's|^staged/||' order.txt | sed 's|^|- |'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

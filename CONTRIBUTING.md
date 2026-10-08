@@ -46,7 +46,7 @@ Keep each pull request to one change. Describe what changed and why, and how you
 
 ## Releases
 
-Maintainers release by updating the version in `Cargo.toml` and `CHANGELOG.md`, then pushing a `vX.Y.Z` tag. The release workflow builds the binaries, creates the GitHub release, and publishes the npm packages.
+Maintainers release by updating the version in `Cargo.toml` and `CHANGELOG.md`, then pushing a `vX.Y.Z` tag. The release workflow builds the binaries, and after a maintainer approves the `release` environment, it creates the GitHub release and stages the npm packages. Each staged package goes live once a maintainer approves it on npmjs.com with 2FA.
 
 ## License
 
