@@ -2,8 +2,9 @@
 
 All notable changes to Mira are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.2.1
 
+- The README, the agent skills, and the npm and Cargo packages link to the Mira site at https://miraweb.in.
 - A `<mira-frame>` tag split across lines in Markdown fails the build at that line. Markdown would have shown it as text.
 - Actions read from a deployed site with `mira mcp --url` cannot reach `localhost` or loopback, private, or link-local addresses, including names that resolve to them, and always ask the person first, even when the site sets `confirm: false`. A confirmation covers the endpoint the person saw as well as the input.
 - Cached responses from CMS and API sources are kept separately for each set of credentials, and a source that refuses its token (HTTP 401 or 403) fails the build and drops its cached copy instead of falling back to it.
