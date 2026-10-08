@@ -27,11 +27,17 @@ description: "How files in routes/ become URLs."
 Every .md or .mira file in routes/ is a page…
 ```
 
-Pages written in Markdown reuse their source. Component pages are converted from their rendered `<main>` element, keeping headings, lists, links, code, and images and leaving out navigation and scripts. Each page links its twin with `<link rel="alternate" type="text/markdown">`. Turn twins off with `"agents": { "twins": false }`.
+Pages written in Markdown reuse their source. Component pages are converted from their rendered `<main>` element, keeping headings, lists, links, code, and images. Navigation, footers, buttons, forms, scripts, anything marked `aria-hidden="true"` or `hidden`, and empty decorative elements are left out, so a twin holds content only. Each page links its twin with `<link rel="alternate" type="text/markdown">`. Turn twins off with `"agents": { "twins": false }`.
 
 ## llms.txt
 
-`/llms.txt` follows the llms.txt format: the site's title and description, then every page grouped by collection, each linking to its twin. `/llms-full.txt` is every twin in one file, for agents that want the whole site in one request.
+`/llms.txt` follows the llms.txt format and works as a router: the site's title and description, then every page grouped by collection, each linking to its twin with a one line description and its approximate size in tokens. An agent fetches only the pages it needs:
+
+```markdown
+- [Deploying](https://example.com/docs/deploying.md): Publish the dist folder to any host. (~1244 tokens)
+```
+
+`/llms-full.txt` is every twin in one file, for agents that want the whole site in one request; `llms.txt` gives its size too. A Data section links the JSON for each collection and data file, with entry counts and field names.
 
 ## Search API
 

@@ -263,7 +263,8 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     if rendered.iter().any(|p| crate::media::Pipeline::uses_video(&p.html)) {
         std::fs::write(mira_dir.join("frame.js"), FRAME_JS)?;
     }
-    for (path, contents) in content_index(&config, &collections, &shared.data, media_files > 0)? {
+    let (content_files, structured) = content_index(&config, &collections, &shared.data, media_files > 0)?;
+    for (path, contents) in content_files {
         let file = mira_dir.join(path);
         std::fs::create_dir_all(file.parent().unwrap())?;
         std::fs::write(file, contents)?;
@@ -296,7 +297,7 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     pages.sort_by(|a, b| a.url.cmp(&b.url));
     metas.sort_by(|a, b| a.url.cmp(&b.url));
     warnings.extend(crate::lint::seo(&metas));
-    let mut outputs = write_site_files(&config, root, &opts.out, &metas, &shared.feeds, media_files > 0, &mut warnings)?;
+    let mut outputs = write_site_files(&config, root, &opts.out, &metas, &shared.feeds, &structured, &mut warnings)?;
     outputs.push("_mira/search.json".into());
     outputs.push("_mira/content.json".into());
     for file in host_files.iter().filter(|f| matches!(f.place, crate::hosts::Place::Output)) {
@@ -915,7 +916,7 @@ fn write_site_files(
     out: &Path,
     pages: &[PageMeta],
     feeds: &[(String, String)],
-    has_media: bool,
+    structured: &[(String, String)],
     warnings: &mut Vec<String>,
 ) -> Result<Vec<String>> {
     let mut files: Vec<(String, String)> = Vec::new();
@@ -930,8 +931,10 @@ fn write_site_files(
         }
     }
     if config.agents.twins {
-        files.push(("llms.txt".into(), crate::outputs::llms_txt(config, pages, has_media)));
-        files.push(("llms-full.txt".into(), crate::outputs::llms_full_txt(config, pages)));
+        let full = crate::outputs::llms_full_txt(config, pages);
+        let has_media = out.join("media.json").is_file();
+        files.push(("llms.txt".into(), crate::outputs::llms_txt(config, pages, has_media, crate::outputs::tokens(&full), structured)));
+        files.push(("llms-full.txt".into(), full));
     }
     files.push(("robots.txt".into(), crate::outputs::robots_txt(config, has_sitemap)));
     if config.headers.emit {
@@ -1001,18 +1004,19 @@ fn load_data(root: &Path) -> Result<Value> {
     Ok(Value::Object(data))
 }
 
+/// Files as `(path, contents)`, or listings as `(path, description)`.
+type Files = Vec<(String, String)>;
+
 /// The site's structured content for agents, as files under `_mira/`:
 /// `content.json` describes the site and lists every collection and data
 /// file, `collections/<name>.json` holds published entries with their
 /// fields, and `data/<name>.json` each data file. `mira mcp` reads the same
 /// files locally and from a deployed site, so both answer alike.
-fn content_index(
-    config: &Config,
-    collections: &BTreeMap<String, Vec<Entry>>,
-    data: &Value,
-    has_media: bool,
-) -> Result<Vec<(String, String)>> {
+///
+/// Also returns `(path, description)` for each JSON file, for llms.txt.
+fn content_index(config: &Config, collections: &BTreeMap<String, Vec<Entry>>, data: &Value, has_media: bool) -> Result<(Files, Files)> {
     let mut files = Vec::new();
+    let mut listed = Vec::new();
     let mut listed_collections = Vec::new();
     let mut listed_data = Vec::new();
     if config.agents.content {
@@ -1023,29 +1027,38 @@ fn content_index(
                 .map(|e| {
                     let mut map = entry_json(e);
                     if let Value::Object(m) = &mut map {
-                        for derived in ["prev", "next", "toc"] {
+                        // Derived for templates; agents get the source fields.
+                        for derived in ["prev", "next", "toc", "reading_time"] {
                             m.remove(derived);
                         }
                         // Entries without a page of their own carry their body here.
                         if e.url.is_none() {
-                            m.insert("markdown".into(), Value::from(e.markdown.clone()));
+                            m.insert("markdown".into(), Value::from(e.markdown.trim().to_string()));
                         }
                     }
                     map
                 })
                 .collect();
-            let fields = config.collections.get(name).map(|s| serde_json::to_value(&s.fields)).transpose()?;
-            listed_collections.push(json!({
-                "name": name,
-                "count": published.len(),
-                "fields": fields,
-                "url": format!("/_mira/collections/{name}.json"),
-            }));
+            let schema = config.collections.get(name);
+            let fields = schema.map(|s| serde_json::to_value(&s.fields)).transpose()?;
+            let path = format!("/_mira/collections/{name}.json");
+            let field_names: Vec<&str> = schema.map(|s| s.fields.keys().map(String::as_str).collect()).unwrap_or_default();
+            let count = published.len();
+            listed.push((
+                path.clone(),
+                match field_names.is_empty() {
+                    true => format!("{name}, {count} entries"),
+                    false => format!("{name}, {count} entries with {}", field_names.join(", ")),
+                },
+            ));
+            listed_collections.push(json!({ "name": name, "count": count, "fields": fields, "url": path }));
             files.push((format!("collections/{name}.json"), serde_json::to_string(&published)?));
         }
         if let Value::Object(map) = data {
             for (name, value) in map {
-                listed_data.push(json!({ "name": name, "url": format!("/_mira/data/{name}.json") }));
+                let path = format!("/_mira/data/{name}.json");
+                listed.push((path.clone(), format!("{name}, a data file")));
+                listed_data.push(json!({ "name": name, "url": path }));
                 files.push((format!("data/{name}.json"), serde_json::to_string(value)?));
             }
         }
@@ -1064,8 +1077,8 @@ fn content_index(
         "collections": listed_collections,
         "data": listed_data,
     });
-    files.push(("content.json".into(), serde_json::to_string_pretty(&index)?));
-    Ok(files)
+    files.push(("content.json".into(), serde_json::to_string(&index)?));
+    Ok((files, listed))
 }
 
 fn entry_json(entry: &Entry) -> Value {

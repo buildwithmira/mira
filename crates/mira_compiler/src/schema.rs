@@ -8,9 +8,15 @@
 //! }
 //! ```
 //!
-//! Types are `string`, `number`, `boolean`, `date` (`YYYY-MM-DD`), `url`,
-//! and `string[]`. A trailing `?` makes a field optional. Fields not in the
+//! Types are `string`, `number`, `boolean`, `date` (`YYYY-MM-DD`), `time`
+//! (`HH:MM`), `datetime` (`YYYY-MM-DDTHH:MM`, with optional seconds and
+//! offset), `url`, `object`, and the lists `string[]`, `number[]`, and
+//! `object[]`. A trailing `?` makes a field optional. Fields not in the
 //! schema fail the build unless `"strict": false`.
+//!
+//! Typed fields are what agents query: dates, times, and numbers compare in
+//! order, so an agent can ask for events after a date or products under a
+//! price without reading every entry.
 
 use std::collections::BTreeMap;
 
@@ -55,7 +61,12 @@ enum Kind {
     Boolean,
     Date,
     Url,
+    Time,
+    DateTime,
+    Object,
     StringList,
+    NumberList,
+    ObjectList,
 }
 
 fn parse_type(spec: &str) -> Option<(Kind, bool)> {
@@ -69,7 +80,12 @@ fn parse_type(spec: &str) -> Option<(Kind, bool)> {
         "boolean" => Kind::Boolean,
         "date" => Kind::Date,
         "url" => Kind::Url,
+        "time" => Kind::Time,
+        "datetime" => Kind::DateTime,
+        "object" => Kind::Object,
         "string[]" => Kind::StringList,
+        "number[]" => Kind::NumberList,
+        "object[]" => Kind::ObjectList,
         _ => return None,
     };
     Some((kind, optional))
@@ -80,7 +96,7 @@ impl Schema {
         for (field, spec) in &self.fields {
             if parse_type(spec).is_none() {
                 bail!(
-                    "mira.config.json: collections.{collection}.fields.{field} has unknown type {spec:?}\nhint: use string, number, boolean, date, url, or string[], with ? for optional"
+                    "mira.config.json: collections.{collection}.fields.{field} has unknown type {spec:?}\nhint: use string, number, boolean, date, time, datetime, url, object, string[], number[], or object[], with ? for optional"
                 );
             }
         }
@@ -132,7 +148,12 @@ fn mismatch(kind: Kind, value: &Value) -> Option<String> {
         Kind::Boolean => value.is_boolean(),
         Kind::Date => value.as_str().is_some_and(is_date),
         Kind::Url => value.as_str().is_some_and(|s| s.starts_with('/') || s.starts_with("https://") || s.starts_with("http://")),
+        Kind::Time => value.as_str().is_some_and(is_time),
+        Kind::DateTime => value.as_str().is_some_and(is_datetime),
+        Kind::Object => value.is_object(),
         Kind::StringList => value.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
+        Kind::NumberList => value.as_array().is_some_and(|a| a.iter().all(Value::is_number)),
+        Kind::ObjectList => value.as_array().is_some_and(|a| a.iter().all(Value::is_object)),
     };
     if ok {
         return None;
@@ -143,7 +164,12 @@ fn mismatch(kind: Kind, value: &Value) -> Option<String> {
         Kind::Boolean => "true or false",
         Kind::Date => "a date like 2026-10-07",
         Kind::Url => "a URL starting with / or https://",
+        Kind::Time => "a time like 18:30",
+        Kind::DateTime => "a date and time like 2026-10-07T18:30",
+        Kind::Object => "a mapping of keys to values",
         Kind::StringList => "a list of strings",
+        Kind::NumberList => "a list of numbers",
+        Kind::ObjectList => "a list of mappings",
     };
     Some(format!("must be {expected}, got {value}"))
 }
@@ -156,6 +182,27 @@ fn is_date(s: &str) -> bool {
         && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
         && (1..=12).contains(&s[5..7].parse::<u8>().unwrap_or(0))
         && (1..=31).contains(&s[8..10].parse::<u8>().unwrap_or(0))
+}
+
+/// `18:30` or `18:30:15`, on a 24 hour clock.
+fn is_time(s: &str) -> bool {
+    let parts: Vec<&str> = s.split(':').collect();
+    matches!(parts.len(), 2 | 3)
+        && parts.iter().all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_digit()))
+        && parts[0] < "24"
+        && parts[1..].iter().all(|p| *p < "60")
+}
+
+/// `2026-10-07T18:30`, with optional seconds, fraction, and `Z` or `+05:30`.
+fn is_datetime(s: &str) -> bool {
+    let Some((date, rest)) = s.split_once(['T', ' ']) else { return false };
+    let clock = rest.trim_end_matches('Z');
+    let clock = match clock.rfind(['+', '-']) {
+        Some(i) if is_time(&clock[i + 1..]) => &clock[..i],
+        _ => clock,
+    };
+    let clock = clock.split('.').next().unwrap_or("");
+    is_date(date) && is_time(clock)
 }
 
 #[cfg(test)]
@@ -179,6 +226,23 @@ mod tests {
         let data = json!({"title": "Hi", "date": "soon"});
         let err = schema().validate(data.as_object().unwrap(), src, "a.md").unwrap_err().to_string();
         assert!(err.starts_with("a.md:3: `date` must be a date"), "{err}");
+    }
+
+    #[test]
+    fn checks_times_and_structures() {
+        let schema: Schema = serde_json::from_value(json!({"fields": {
+            "opens": "time", "starts": "datetime", "hours": "object", "prices": "number[]", "talks": "object[]"
+        }}))
+        .unwrap();
+        let good = json!({"opens": "09:00", "starts": "2026-10-07T18:30:00+05:30", "hours": {"mon": "9-5"}, "prices": [4, 4.5], "talks": [{"at": "10:00"}]});
+        schema.validate(good.as_object().unwrap(), "", "a.md").unwrap();
+        for (field, bad) in [("opens", json!("25:00")), ("starts", json!("2026-10-07")), ("prices", json!(["4"])), ("talks", json!(["x"]))]
+        {
+            let mut data = good.clone();
+            data[field] = bad;
+            assert!(schema.validate(data.as_object().unwrap(), "", "a.md").is_err(), "{field}");
+        }
+        assert!(is_datetime("2026-10-07T18:30Z") && is_datetime("2026-10-07 18:30:05.5"));
     }
 
     #[test]

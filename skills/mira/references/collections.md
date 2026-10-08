@@ -78,8 +78,15 @@ Declare the fields a collection's frontmatter must have in `mira.config.json`:
 | `number` | Numbers |
 | `boolean` | `true` or `false` |
 | `date` | A date like `2026-10-07` |
+| `time` | A time like `18:30`, on a 24 hour clock |
+| `datetime` | A date and time like `2026-10-07T18:30`, with optional seconds and offset |
 | `url` | A path starting with `/`, or an `http` or `https` URL |
+| `object` | A mapping, such as opening hours by day |
 | `string[]` | A list of text values |
+| `number[]` | A list of numbers |
+| `object[]` | A list of mappings, such as a schedule of talks |
+
+Typed fields are also what agents query. Over MCP, `items` filters a collection by them, so prices compare as numbers and dates and times in time order. See [Query collections](mcp.md#query-collections).
 
 Add `?` to make a field optional. Fields not in the schema fail the build, which catches typos such as `auther:`; set `"strict": false` on the collection to allow them. Mira's own keys (`slug`, `draft`, `layout`, `transition`, and `order`) are always allowed.
 

@@ -6,7 +6,17 @@ All notable changes to Mira are listed here. The format follows [Keep a Changelo
 
 - Agent skills: `mira` for building and deploying Mira sites, and `mira-migrate` for moving sites to Mira. Install with `npx skills add buildwithmira/mira`.
 - Every Mira site can be read over MCP, wherever it is deployed. `mira mcp --url https://example.com` serves any deployed Mira site, on any host, from the files its build publishes.
-- New MCP tools: `site_info`, `list_entries` for a collection's entries with their fields, `read_data` for data files, and `list_media`, alongside `list_pages`, `read_page`, and `search`.
+- MCP tools, renamed and shortened: `site`, `pages`, `search`, `read`, `items`, `data`, and `media`. Clients discover tools when they connect, so existing configs keep working.
+- `mira mcp` keeps one build for the whole session and rebuilds a project only when one of its files changes. Calls after the first answer in about a millisecond, down from 120 to 150 ms.
+- `search` returns five matches by default, each with a score, a `path#section` link to the heading that matches, and a snippet of at most 160 characters.
+- `read` takes `path#section` or `section` to return one section, and `max_chars` to cap the answer. A page cut short lists its remaining sections.
+- `items` queries a collection: filter with `where` (`gt`, `gte`, `lt`, `lte`, `ne`, `contains`, `in`), pick `fields`, and `sort`. Entries come back without their Markdown body unless asked for.
+- `data` takes a dotted `path`, such as `hours.monday`, to return one value from a data file. `pages` takes a `prefix`, and `media` a `page`.
+- Collection schemas accept `time`, `datetime`, `object`, `number[]`, and `object[]`, so hours, schedules, and prices can be typed and queried.
+- `llms.txt` is a router: each page lists its approximate size in tokens, `llms-full.txt` its total, and a Data section links each collection's JSON with its entry count and fields.
+- `mira audit --agent` reports what each page costs an agent to read: the tokens in its Markdown copy, its search index entry, and its largest section, flagging pages over a budget.
+- Markdown copies of component pages leave out footers, buttons, forms, anything marked `aria-hidden="true"` or `hidden`, and empty decorative elements, which used to show up as stray `*` and `#` characters.
+- The search index separates words that sat in neighboring `<span>` elements and no longer adds spaces around inline code and links.
 - Each build writes a content index for agents: `/_mira/content.json`, plus `/_mira/collections/<name>.json` and `/_mira/data/<name>.json`. Turn it off with `agents.content: false`. `llms.txt` links the index and shows how to connect over MCP.
 - Fixed: `mira dev` and `mira mcp` no longer rewrite host config files such as `netlify.toml` in the project root. They pointed those files at a private build folder, so a deploy after running `mira dev` could publish the wrong directory.
 - Fixed: code blocks in Markdown keep the space between them and the text around them, and inline code no longer breaks across lines in the middle of a token such as `--help`. On screens narrower than 40rem, wide tables scroll inside themselves and long inline code wraps, so neither makes the page scroll sideways.

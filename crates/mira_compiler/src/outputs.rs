@@ -111,19 +111,32 @@ pub fn rss(config: &Config, collection: &str, feed_path: &str, pages: &[PageMeta
     Some(xml)
 }
 
-/// The llms.txt index (https://llmstxt.org): site summary, then every page
-/// grouped by collection, linking to Markdown twins when they exist.
-pub fn llms_txt(config: &Config, pages: &[PageMeta], has_media: bool) -> String {
+/// Approximate tokens in `text`, at four characters per token: close
+/// enough to choose between fetching a page and fetching a section.
+pub fn tokens(text: &str) -> usize {
+    text.chars().count().div_ceil(4)
+}
+
+/// The llms.txt index (https://llmstxt.org), written as a router: every
+/// page with a one line description and its approximate size, so an agent
+/// fetches only what it needs. `structured` lists the JSON files for
+/// collections and data, as `(path, description)`.
+pub fn llms_txt(config: &Config, pages: &[PageMeta], has_media: bool, full_tokens: usize, structured: &[(String, String)]) -> String {
     let mut out = format!("# {}\n\n", config.site.title);
     if let Some(d) = &config.site.description {
         out.push_str(&format!("> {d}\n\n"));
     }
+    let at = |path: &str| absolute(config, path).unwrap_or_else(|| path.to_string());
+    out.push_str(&format!(
+        "Each link below is one page as Markdown, with its approximate size in tokens. Fetch the pages you need, or [llms-full.txt]({}) for every page in one file (~{full_tokens} tokens). Structured content is listed under Data.\n\n",
+        at("/llms-full.txt")
+    ));
     let link = |p: &PageMeta| {
-        let target = if p.twin.is_some() { twin_url(&p.url) } else { p.url.clone() };
-        let target = absolute(config, &target).unwrap_or(target);
+        let target = at(&if p.twin.is_some() { twin_url(&p.url) } else { p.url.clone() });
+        let size = p.twin.as_deref().map(|t| format!(" (~{} tokens)", tokens(t))).unwrap_or_default();
         match &p.description {
-            Some(d) => format!("- [{}]({target}): {d}\n", p.title),
-            None => format!("- [{}]({target})\n", p.title),
+            Some(d) => format!("- [{}]({target}): {d}{size}\n", p.title),
+            None => format!("- [{}]({target}){size}\n", p.title),
         }
     };
     out.push_str("## Pages\n\n");
@@ -143,24 +156,22 @@ pub fn llms_txt(config: &Config, pages: &[PageMeta], has_media: bool) -> String 
         }
     }
     out.push_str("\n## Data\n\n");
-    let data = |path: &str| absolute(config, path).unwrap_or_else(|| path.to_string());
-    out.push_str(&format!("- [Search index]({}): every page's title, headings, and text as JSON\n", data("/_mira/search.json")));
-    if has_media {
-        out.push_str(&format!(
-            "- [Media manifest]({}): every image and video with its size, formats, alt text, and caption\n",
-            data("/media.json")
-        ));
+    for (path, description) in structured {
+        out.push_str(&format!("- [{path}]({}): {description}\n", at(path)));
     }
-    out.push_str(&format!("- [Full text]({}): every page as Markdown in one file\n", data("/llms-full.txt")));
+    out.push_str(&format!("- [Search index]({}): every page's title, headings, and opening text as JSON\n", at("/_mira/search.json")));
+    if has_media {
+        out.push_str(&format!("- [Media manifest]({}): every image and video with its size, alt text, and caption\n", at("/media.json")));
+    }
     if config.agents.content {
         out.push_str(&format!(
-            "- [Content index]({}): the site's collections, with each entry's fields, and its data files\n",
-            data("/_mira/content.json")
+            "- [Content index]({}): the collections and data files above, with their field types\n",
+            at("/_mira/content.json")
         ));
     }
     let site = config.site.url.as_deref().map_or_else(|| "https://example.com".to_string(), |u| u.trim_end_matches('/').to_string());
     out.push_str(&format!(
-        "\n## MCP\n\nAny MCP client can read this site's pages, content, data, and media:\n\n```\nnpx -y @miraframework/mira mcp --url {site}\n```\n"
+        "\n## MCP\n\nAny MCP client can search this site, read pages or single sections, and query its collections:\n\n```\nnpx -y @miraframework/mira mcp --url {site}\n```\n"
     ));
     out
 }
@@ -299,6 +310,29 @@ mod tests {
     fn twin_urls() {
         assert_eq!(twin_url("/"), "/index.md");
         assert_eq!(twin_url("/posts/a/"), "/posts/a.md");
+    }
+
+    #[test]
+    fn llms_txt_routes_with_sizes() {
+        let page = |url: &str, collection: Option<&str>| PageMeta {
+            url: url.into(),
+            title: "Hours".into(),
+            description: Some("When we are open.".into()),
+            date: None,
+            collection: collection.map(str::to_string),
+            twin: Some("x".repeat(400)),
+            not_found: false,
+            noindex: false,
+            lastmod: None,
+            own_description: None,
+            document_title: String::new(),
+        };
+        let structured = [("/_mira/collections/menu.json".to_string(), "menu, 12 entries with name, price".to_string())];
+        let txt = llms_txt(&Config::default(), &[page("/hours/", None), page("/posts/a/", Some("posts"))], false, 900, &structured);
+        assert!(txt.contains("- [Hours](/hours.md): When we are open. (~100 tokens)"), "{txt}");
+        assert!(txt.contains("(~900 tokens)"), "{txt}");
+        assert!(txt.contains("## Posts\n\n- [Hours](/posts/a.md)"), "{txt}");
+        assert!(txt.contains("- [/_mira/collections/menu.json](/_mira/collections/menu.json): menu, 12 entries"), "{txt}");
     }
 
     #[test]

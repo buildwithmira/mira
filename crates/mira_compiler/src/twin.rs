@@ -2,7 +2,9 @@
 //!
 //! Pages authored in Markdown reuse their source. Component pages are
 //! converted from the rendered `<main>` element, which covers the common
-//! content tags and drops chrome such as navigation and scripts.
+//! content tags and drops chrome: navigation, footers, scripts, forms,
+//! anything marked `aria-hidden="true"` or `hidden`, and decorative empty
+//! elements.
 
 /// Converts the `<main>` element of `html` (or the whole input when there
 /// is none) to Markdown.
@@ -44,7 +46,12 @@ struct Converter {
     line: String,
     lists: Vec<(bool, usize)>,
     links: Vec<String>,
-    skip: usize,
+    /// The element being skipped and how deeply it is nested in itself.
+    skip: Option<(String, usize)>,
+    /// Open inline markers (`**`, `*`, `` ` ``) and where each starts in `line`.
+    marks: Vec<(&'static str, usize)>,
+    /// A closed `<span>` may sit flush against the next words.
+    space_after: bool,
     pre: bool,
     pre_lang: String,
     link_has_blocks: bool,
@@ -54,20 +61,37 @@ struct Converter {
 impl Converter {
     fn tag(&mut self, raw: &str) {
         let closing = raw.starts_with('/');
+        let self_closing = raw.ends_with('/');
         let raw = raw.trim_start_matches('/').trim_end_matches('/');
         let name_end = raw.find(|c: char| c.is_whitespace()).unwrap_or(raw.len());
         let name = raw[..name_end].to_ascii_lowercase();
         let attrs = &raw[name_end..];
 
-        if matches!(name.as_str(), "script" | "style" | "nav" | "template" | "svg" | "button" | "form") {
-            if closing {
-                self.skip = self.skip.saturating_sub(1)
-            } else {
-                self.skip += 1
+        let void = matches!(name.as_str(), "img" | "br" | "hr" | "input" | "meta" | "link" | "source" | "wbr");
+        if let Some((skipped, depth)) = &mut self.skip {
+            if *skipped == name && !void {
+                if closing {
+                    *depth -= 1;
+                    if *depth == 0 {
+                        self.skip = None;
+                    }
+                } else {
+                    *depth += 1;
+                }
             }
             return;
         }
-        if self.skip > 0 {
+        let chrome = matches!(name.as_str(), "script" | "style" | "nav" | "footer" | "template" | "svg" | "button" | "form" | "dialog")
+            || attr(attrs, "aria-hidden").as_deref() == Some("true")
+            || has_flag(attrs, "hidden");
+        if chrome && !closing {
+            if !void && !self_closing {
+                self.skip = Some((name, 1));
+            }
+            return;
+        }
+        if name == "span" {
+            self.space_after = closing;
             return;
         }
         match (name.as_str(), closing) {
@@ -90,14 +114,16 @@ impl Converter {
                 self.block();
                 self.out.push_str("---\n\n");
             }
-            ("strong" | "b", _) => self.line.push_str("**"),
-            ("em" | "i", _) => self.line.push('*'),
+            ("strong" | "b", false) => self.open_mark("**"),
+            ("em" | "i", false) => self.open_mark("*"),
+            ("strong" | "b" | "em" | "i", true) => self.close_mark(),
             ("code", false) if self.pre => {
                 if let Some(lang) = language(attrs) {
                     self.pre_lang = lang;
                 }
             }
-            ("code", _) if !self.pre => self.line.push('`'),
+            ("code", false) if !self.pre => self.open_mark("`"),
+            ("code", true) if !self.pre => self.close_mark(),
             ("pre", false) => {
                 self.block();
                 self.pre = true;
@@ -165,14 +191,42 @@ impl Converter {
         }
     }
 
+    fn open_mark(&mut self, mark: &'static str) {
+        self.marks.push((mark, self.line.len()));
+        self.line.push_str(mark);
+    }
+
+    /// Closes the innermost marker, or drops it when it wrapped no text, so
+    /// decorative `<i></i>` and `<b></b>` leave nothing behind.
+    fn close_mark(&mut self) {
+        let Some((mark, at)) = self.marks.pop() else { return };
+        if at > self.line.len() || !self.line.is_char_boundary(at) {
+            return;
+        }
+        if self.line[at + mark.len()..].trim().is_empty() {
+            self.line.truncate(at);
+            return;
+        }
+        let trailing = self.line.len() - self.line.trim_end().len();
+        self.line.truncate(self.line.trim_end().len());
+        self.line.push_str(mark);
+        if trailing > 0 {
+            self.line.push(' ');
+        }
+    }
+
     fn text(&mut self, raw: &str) {
-        if self.skip > 0 {
+        if self.skip.is_some() {
             return;
         }
         let text = decode_entities(raw);
         if self.pre {
+            self.space_after = false;
             self.line.push_str(&text);
             return;
+        }
+        if std::mem::take(&mut self.space_after) && text.starts_with(char::is_alphanumeric) && !self.line.ends_with([' ', '\n', '[']) {
+            self.line.push(' ');
         }
         let mut last_space = self.line.is_empty() || self.line.ends_with([' ', '\n', '[']);
         for c in text.chars() {
@@ -189,6 +243,7 @@ impl Converter {
     }
 
     fn flush_line(&mut self, paragraph: bool) {
+        self.marks.clear();
         let line = std::mem::take(&mut self.line);
         let line = line.trim_end();
         let content = line.trim_start_matches(['-', ' ', '#']).trim_start_matches(|c: char| c.is_ascii_digit() || c == '.');
@@ -235,6 +290,11 @@ fn language(attrs: &str) -> Option<String> {
         return Some(lang);
     }
     attr(attrs, "class")?.split_whitespace().find_map(|w| w.strip_prefix("language-")).map(str::to_string)
+}
+
+/// A boolean attribute such as `hidden`, written bare or with a value.
+fn has_flag(attrs: &str, name: &str) -> bool {
+    attrs.split_whitespace().any(|w| w == name || w.strip_prefix(name).is_some_and(|rest| rest.starts_with('=')))
 }
 
 fn attr(attrs: &str, name: &str) -> Option<String> {
@@ -318,6 +378,23 @@ mod tests {
         assert!(md.contains("```rs\nlet x = 1 < 2;\n```"), "{md}");
         assert!(md.contains("Some **bold** and `code`."), "{md}");
         assert!(!md.contains("Home"), "{md}");
+    }
+
+    #[test]
+    fn drops_decoration_and_hidden_chrome() {
+        let html = r#"<main><h1>Pages that <span class="hl">move.<i></i><i></i></span></h1>
+<ul><li><i class="dot"></i>1 KB runtime</li></ul>
+<a href="/v/"><span>0.1.2</span>The release</a>
+<div aria-hidden="true"><b>decor</b><div>more</div></div><p hidden>secret</p>
+<h2><i></i></h2><p>Real <em>words</em> and <b> </b>more.</p><footer>Edit this page</footer></main>"#;
+        let md = html_to_markdown(html);
+        assert!(md.starts_with("# Pages that move.\n"), "{md}");
+        assert!(md.contains("- 1 KB runtime"), "{md}");
+        assert!(md.contains("[0.1.2 The release](/v/)"), "{md}");
+        assert!(md.contains("Real *words* and more."), "{md}");
+        for gone in ["decor", "more\n", "secret", "Edit this", "**", "##"] {
+            assert!(!md.contains(gone), "{gone:?} in {md}");
+        }
     }
 
     #[test]
