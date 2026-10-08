@@ -81,8 +81,8 @@ for (const { os, cpu, target } of platforms) {
 
 writePackage(join(out, "mira"), { ...main, version, files: [...main.files, ...licenses], optionalDependencies: optional }, [
   [join(npmDir, "mira", "bin", "mira.js"), join("bin", "mira.js")],
-  [join(npmDir, "mira", "README.md"), "README.md"],
 ]);
+writeFileSync(join(out, "mira", "README.md"), npmReadme(readFileSync(join(repo, "README.md"), "utf8")));
 
 const create = JSON.parse(readFileSync(join(npmDir, "create-mira", "package.json"), "utf8"));
 writePackage(join(out, "create-mira"), { ...create, version, files: [...create.files, ...licenses], dependencies: { "@miraframework/mira": version } }, [
@@ -91,3 +91,18 @@ writePackage(join(out, "create-mira"), { ...create, version, files: [...create.f
 ]);
 
 console.log(order.join("\n"));
+
+// The repository README, with relative links and images pointed at GitHub at
+// this release's tag, since npmjs.com cannot resolve relative paths.
+function npmReadme(text) {
+  const base = "https://github.com/buildwithmira/mira";
+  const absolute = (url) => {
+    if (/^(https?:|mailto:)/.test(url)) return url;
+    if (url.startsWith("#")) return `${base}/tree/v${version}${url}`;
+    const image = /\.(png|jpe?g|gif|svg|webp|avif)$/i.test(url);
+    return image ? `https://raw.githubusercontent.com/buildwithmira/mira/v${version}/${url}` : `${base}/blob/v${version}/${url}`;
+  };
+  return text
+    .replace(/(src|href)="([^"]+)"/g, (_, attr, url) => `${attr}="${absolute(url)}"`)
+    .replace(/\]\(([^)\s]+)\)/g, (_, url) => `](${absolute(url)})`);
+}

@@ -60,6 +60,27 @@ cargo install --git https://github.com/buildwithmira/mira mira
 
 Run `mira <command> --help` for options.
 
+## Use with MCP
+
+`mira mcp` serves a site's content to any client that speaks the [Model Context Protocol](https://modelcontextprotocol.io). It rebuilds the site before each answer, so results always match the current source. Add it to your client's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "my-site": {
+      "command": "npx",
+      "args": ["-y", "@miraframework/mira", "mcp", "--root", "/path/to/my-site"]
+    }
+  }
+}
+```
+
+| Tool | What it returns |
+| --- | --- |
+| `list_pages` | Every page with its URL, title, and description |
+| `read_page` | One page as Markdown, with its title and canonical URL |
+| `search` | The best matching pages for a query, with snippets |
+
 ## Project layout
 
 ```text
@@ -70,6 +91,20 @@ my-site/
 ├── content/             collections of Markdown entries
 └── public/              copied to the output as is
 ```
+
+## Deploy
+
+`mira build` writes a complete static site to `dist/`. Name your hosts in `mira.config.json`, and each build also writes those hosts' own config files, so headers, clean URLs, the 404 page, and redirects work the same everywhere:
+
+```json
+{
+  "site": { "url": "https://example.com" },
+  "hosts": { "vercel": {}, "netlify": {} },
+  "redirects": { "/old-path/": "/new-path/" }
+}
+```
+
+Supported hosts: `vercel`, `netlify`, `cloudflare`, `github`, `firebase`, `render`, `azure`, `docker`, `deno`, and `s3`. Any other static host works by uploading `dist/`.
 
 ## Repository
 
