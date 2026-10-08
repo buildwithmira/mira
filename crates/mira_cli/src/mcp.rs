@@ -379,6 +379,11 @@ fn tools_for(source: &Source) -> Value {
         for action in actions {
             let Some(name) = action["name"].as_str() else { continue };
             let mut schema = action["input_schema"].clone();
+            // A deployed site's actions are data from the network: skip one
+            // whose schema is malformed rather than fail the whole list.
+            if !schema["properties"].is_object() {
+                continue;
+            }
             schema["properties"]["confirm"] = json!({ "type": "string" });
             let host = action["endpoint"].as_str().unwrap_or("").split('/').nth(2).unwrap_or("");
             tools.push(json!({
@@ -580,8 +585,11 @@ fn act(source: &Source, action: &Value, args: &Value, confirm: &mut dyn FnMut(&s
         .send(body.as_str())
         .map_err(|e| anyhow!("could not reach {endpoint}: {e}"))?;
     let status = response.status().as_u16();
-    let mut reply = String::new();
-    let _ = response.body_mut().as_reader().take(REPLY_BYTES).read_to_string(&mut reply);
+    // Decoded after the cut, so a character split at the limit costs one
+    // character, not the whole reply.
+    let mut bytes = Vec::new();
+    let _ = response.body_mut().as_reader().take(REPLY_BYTES).read_to_end(&mut bytes);
+    let reply = String::from_utf8_lossy(&bytes);
     match status {
         200..=299 => Ok(format!("Sent. {endpoint} answered HTTP {status}.\n{}", reply.trim())),
         _ => bail!("{endpoint} answered HTTP {status}; the action may not have happened.\n{}", reply.trim()),

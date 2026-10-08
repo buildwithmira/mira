@@ -120,7 +120,8 @@ mira audit --agent --budget 1500 --json
 
 - `--url` accepts `https://` addresses, and `http://` only for `localhost`. It follows no redirects, stops after 20 seconds, and reads at most 16 MB per file.
 - Page paths, collection names, and data file names are checked before use, so a request cannot read anything outside the site or its build folder.
-- The server only reads. It never writes to the project, and in project mode it builds into `.mira/mcp/`, never `dist/` or your host config files.
+- The server never writes to the project. In project mode it builds into `.mira/mcp/`, never `dist/` or your host config files, and with `--url` it only reads the deployed site's files.
+- Only [action](actions.md) tools send anything: a JSON `POST` to the endpoint the site declares, after the person agrees, unless the action sets `"confirm": false`.
 - Logs go to standard error, so they never mix with protocol messages.
 
 ## Protocol details
