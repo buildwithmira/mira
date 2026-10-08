@@ -41,7 +41,16 @@ pub fn run(root: &Path, budget: usize, json_out: bool) -> Result<()> {
     build(&BuildOptions { root: root.to_path_buf(), out: out.clone(), dev: false, host_config: false })?;
     let read = |path: &str| std::fs::read_to_string(out.join(path)).ok();
 
-    let index: Vec<Value> = read("_mira/search.json").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    let index: Vec<Value> = match read("_mira/search.json") {
+        None => Vec::new(),
+        Some(text) => serde_json::from_str(&text).map_err(|e| {
+            anyhow::anyhow!(
+                "{}:{}: the search index is not valid JSON: {e}\nhint: run mira build and check for errors",
+                out.join("_mira/search.json").display(),
+                e.line()
+            )
+        })?,
+    };
     if index.is_empty() {
         bail!("the build wrote no search index, so there is nothing to audit");
     }
@@ -87,7 +96,8 @@ pub fn run(root: &Path, budget: usize, json_out: bool) -> Result<()> {
             "budget": budget, "pages": pages, "over_budget": over.len(), "without_markdown": missing.len(),
             "llms_txt_tokens": llms, "llms_full_tokens": full, "mcp_tool_tokens": schemas,
         });
-        println!("{}", json!({ "ok": true, "schema": 1, "report": report }));
+        let passed = over.is_empty() && missing.is_empty();
+        println!("{}", json!({ "ok": true, "schema": 1, "passed": passed, "report": report }));
         return Ok(());
     }
 

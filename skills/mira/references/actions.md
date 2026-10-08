@@ -74,4 +74,4 @@ Every build publishes the actions at `/_mira/actions.json`, with a JSON Schema f
 
 - Mira sends only to the endpoint the site declares, only over `https://` (or to `localhost`), and follows no redirects.
 - Input is limited to the declared fields and 16 KB.
-- In `--url` mode, the actions come from someone else's site, so Mira treats them as untrusted. Each endpoint is checked again before sending. An endpoint on `localhost`, a loopback, private, or link-local address is refused, so a site cannot use your agent to reach your own machine or network. And every action asks the person first, even when the site sets `confirm: false`.
+- In `--url` mode, the actions come from someone else's site, so Mira treats them as untrusted. Each endpoint is checked again before sending. An endpoint on `localhost`, a loopback, private, or link-local address is refused, and so is any name that resolves to one, checked on the address Mira actually connects to. A site cannot use your agent to reach your own machine or network. A confirmation covers the exact input and endpoint the person saw. And every action asks the person first, even when the site sets `confirm: false`.

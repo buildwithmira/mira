@@ -5,7 +5,7 @@ All notable changes to Mira are listed here. The format follows [Keep a Changelo
 ## Unreleased
 
 - A `<mira-frame>` tag split across lines in Markdown fails the build at that line. Markdown would have shown it as text.
-- Actions read from a deployed site with `mira mcp --url` cannot reach `localhost` or loopback, private, or link-local addresses, and always ask the person first, even when the site sets `confirm: false`.
+- Actions read from a deployed site with `mira mcp --url` cannot reach `localhost` or loopback, private, or link-local addresses, including names that resolve to them, and always ask the person first, even when the site sets `confirm: false`. A confirmation covers the endpoint the person saw as well as the input.
 - Cached responses from CMS and API sources are kept separately for each set of credentials, and a source that refuses its token (HTTP 401 or 403) fails the build and drops its cached copy instead of falling back to it.
 - `mira audit --agent` refuses to run when `agents.twins` is `false`, and flags pages without a Markdown copy instead of counting them as empty.
 

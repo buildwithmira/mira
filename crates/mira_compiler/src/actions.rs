@@ -101,7 +101,7 @@ pub fn endpoint_allowed(url: &str) -> bool {
 /// site's actions must never reach these, or visiting a hostile site with
 /// an agent could send requests to services on the agent's own network.
 pub fn endpoint_is_local(url: &str) -> bool {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::IpAddr;
     let authority = url.split("://").nth(1).unwrap_or("").split(['/', '?', '#']).next().unwrap_or("");
     let host = authority.rsplit('@').next().unwrap_or("");
     let host = match host.strip_prefix('[') {
@@ -112,10 +112,19 @@ pub fn endpoint_is_local(url: &str) -> bool {
     if host == "localhost" || host.ends_with(".localhost") {
         return true;
     }
+    host.parse::<IpAddr>().is_ok_and(is_local_ip)
+}
+
+/// Loopback, private, link-local, unspecified, and unique local addresses,
+/// including IPv4 addresses mapped into IPv6. Checked again on the address
+/// a request actually connects to, since a public name can resolve to any
+/// of these.
+pub fn is_local_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::{IpAddr, Ipv4Addr};
     let v4 = |ip: Ipv4Addr| ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified() || ip.octets()[0] == 0;
-    match host.parse::<IpAddr>() {
-        Ok(IpAddr::V4(ip)) => v4(ip),
-        Ok(IpAddr::V6(ip)) => {
+    match ip {
+        IpAddr::V4(ip) => v4(ip),
+        IpAddr::V6(ip) => {
             let first = ip.segments()[0];
             ip.is_loopback()
                 || ip.is_unspecified()
@@ -123,7 +132,6 @@ pub fn endpoint_is_local(url: &str) -> bool {
                 || first & 0xffc0 == 0xfe80
                 || ip.to_ipv4_mapped().is_some_and(v4)
         }
-        Err(_) => false,
     }
 }
 

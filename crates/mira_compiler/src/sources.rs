@@ -569,6 +569,13 @@ fn http(url: &str, headers: &[(String, String)], body: Option<&str>) -> Result<V
     };
     let mut response = sent.map_err(|e| anyhow!("could not reach {host}: {e}"))?;
     let status = response.status().as_u16();
+    // Decided before the body is read, so no failure reading it can turn a
+    // refusal into an error the cache would answer.
+    if matches!(status, 401 | 403) {
+        return Err(anyhow::Error::new(Refused(format!(
+            "{host} refused the request (HTTP {status})\nhint: check the token and its permissions"
+        ))));
+    }
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut std::io::Read::take(response.body_mut().as_reader(), MAX_BYTES + 1), &mut bytes)
         .map_err(|e| anyhow!("could not read from {host}: {e}"))?;
@@ -577,9 +584,6 @@ fn http(url: &str, headers: &[(String, String)], body: Option<&str>) -> Result<V
     }
     match status {
         200..=299 => Ok(bytes),
-        401 | 403 => Err(anyhow::Error::new(Refused(format!(
-            "{host} refused the request (HTTP {status})\nhint: check the token and its permissions"
-        )))),
         _ => {
             let text = String::from_utf8_lossy(&bytes);
             let detail: String = text.chars().take(200).collect();
