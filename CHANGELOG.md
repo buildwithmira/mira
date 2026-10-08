@@ -6,6 +6,7 @@ All notable changes to Mira are listed here. The format follows [Keep a Changelo
 
 - Agent skills: `mira` for building and deploying Mira sites, and `mira-migrate` for moving sites to Mira. Install with `npx skills add buildwithmira/mira`.
 - Every Mira site can be read over MCP, wherever it is deployed. `mira mcp --url https://example.com` serves any deployed Mira site, on any host, from the files its build publishes.
+- Actions: declare typed requests such as `book_table` in `mira.config.json`, each with input fields, a description, and an HTTPS endpoint that receives the input as JSON. Builds publish them at `/_mira/actions.json` and in `llms.txt`, and `mira mcp` offers each as a tool. Input is checked against its types, and nothing is sent until the person using the agent agrees, through the client's own prompt (MCP elicitation) or a one-time confirmation tied to the exact input.
 - MCP tools, renamed and shortened: `site`, `pages`, `search`, `read`, `items`, `data`, and `media`. Clients discover tools when they connect, so existing configs keep working.
 - `mira mcp` keeps one build for the whole session and rebuilds a project only when one of its files changes. Calls after the first answer in about a millisecond, down from 120 to 150 ms.
 - `search` returns five matches by default, each with a score, a `path#section` link to the heading that matches, and a snippet of at most 160 characters.

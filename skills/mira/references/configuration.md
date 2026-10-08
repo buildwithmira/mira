@@ -79,6 +79,10 @@ A list of faces with `family`, `src`, `weight`, `style`, and `preload`. See [Fon
 
 Schemas keyed by collection name, each with `fields` and an optional `strict` (default `true`). See [Content collections](collections.md#schemas).
 
+## actions
+
+Typed requests agents can make, keyed by name, each with a `description`, `input` fields typed as in collection schemas, an `endpoint` that receives the input as a JSON `POST`, and `confirm` (default `true`). See [Actions](actions.md).
+
 ## agents
 
 | Key | Type | Default | Meaning |

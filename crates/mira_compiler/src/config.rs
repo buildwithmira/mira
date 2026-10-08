@@ -29,6 +29,9 @@ pub struct Config {
     pub redirects: BTreeMap<String, String>,
     /// Frontmatter schemas keyed by collection name.
     pub collections: BTreeMap<String, crate::schema::Schema>,
+    /// Typed requests agents can make, such as booking a table, keyed by
+    /// name. Each sends its input as JSON to an endpoint.
+    pub actions: BTreeMap<String, crate::actions::Action>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize)]
@@ -223,6 +226,7 @@ impl Config {
         for (name, schema) in &self.collections {
             schema.check_types(name)?;
         }
+        crate::actions::check(&self.actions)?;
         for (key, value) in [("search", &self.agents.search), ("answers", &self.agents.answers), ("training", &self.agents.training)] {
             if !matches!(value.as_str(), "allow" | "disallow") {
                 bail!("agents.{key} must be \"allow\" or \"disallow\"");

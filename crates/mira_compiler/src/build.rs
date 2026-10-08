@@ -236,7 +236,7 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
         extra.extend(shared.feeds.iter().map(|(_, feed)| feed.clone()));
         extra.extend(shared.media.outputs());
         extra.extend(config.redirects.keys().cloned());
-        extra.extend(["/media.json".to_string(), "/_mira/frame.js".to_string(), "/_mira/content.json".to_string()]);
+        extra.extend(["/media.json", "/_mira/frame.js", "/_mira/content.json", "/_mira/actions.json"].map(String::from));
         extra.extend(rendered.iter().filter(|p| p.meta.twin.is_some()).map(|p| twin_url(&p.url)));
         let known = crate::lint::known_paths(&lint_pages, extra, &root.join("public"));
         warnings.extend(crate::lint::check(&lint_pages, &known, root)?);
@@ -269,6 +269,9 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
         std::fs::create_dir_all(file.parent().unwrap())?;
         std::fs::write(file, contents)?;
     }
+    if !config.actions.is_empty() {
+        std::fs::write(mira_dir.join("actions.json"), crate::actions::index(&config.actions).to_string())?;
+    }
 
     let mut pages = Vec::with_capacity(rendered.len());
     let mut metas = Vec::with_capacity(rendered.len());
@@ -300,6 +303,9 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     let mut outputs = write_site_files(&config, root, &opts.out, &metas, &shared.feeds, &structured, &mut warnings)?;
     outputs.push("_mira/search.json".into());
     outputs.push("_mira/content.json".into());
+    if !config.actions.is_empty() {
+        outputs.push(format!("_mira/actions.json ({})", config.actions.len()));
+    }
     for file in host_files.iter().filter(|f| matches!(f.place, crate::hosts::Place::Output)) {
         std::fs::write(opts.out.join(file.name), &file.contents)?;
         outputs.push(file.name.to_string());
@@ -1076,6 +1082,7 @@ fn content_index(config: &Config, collections: &BTreeMap<String, Vec<Entry>>, da
         "media": has_media.then_some("/media.json"),
         "collections": listed_collections,
         "data": listed_data,
+        "actions": (!config.actions.is_empty()).then_some("/_mira/actions.json"),
     });
     files.push(("content.json".into(), serde_json::to_string(&index)?));
     Ok((files, listed))

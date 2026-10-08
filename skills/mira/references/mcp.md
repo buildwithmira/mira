@@ -52,6 +52,8 @@ If `mira` is already on your `PATH`, use `"command": "mira"` and drop the first 
 | `data` | `name`, optional `path` such as `hours.monday` | A data file from `data/`, or one value in it, as JSON |
 | `media` | optional `page` | Images and video with alt text, captions, sizes, and file URLs |
 
+Each [action](actions.md) the site declares, such as `book_table`, is a tool too, with an input schema built from its fields.
+
 Tool failures, such as an unknown page or collection, come back as tool results with `isError: true` and a message the agent can act on, such as the list of sections a page has.
 
 ## Read less

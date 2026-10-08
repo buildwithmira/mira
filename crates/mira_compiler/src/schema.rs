@@ -141,6 +141,42 @@ impl Schema {
     }
 }
 
+/// Whether `spec` is a known type, such as `number` or `date?`.
+pub fn is_type(spec: &str) -> bool {
+    parse_type(spec).is_some()
+}
+
+/// Whether a field of type `spec` may be left out.
+pub fn is_optional(spec: &str) -> bool {
+    spec.ends_with('?')
+}
+
+/// Checks one value against a type such as `number` or `time`, returning
+/// what is wrong, as in `must be a number, got "4"`.
+pub fn check(spec: &str, value: &Value) -> Option<String> {
+    let (kind, _) = parse_type(spec)?;
+    mismatch(kind, value)
+}
+
+/// The JSON Schema for a type, for tools that describe their input.
+pub fn json_schema(spec: &str) -> Value {
+    let Some((kind, _)) = parse_type(spec) else { return serde_json::json!({}) };
+    let string = |format: &str| serde_json::json!({ "type": "string", "format": format });
+    match kind {
+        Kind::String => serde_json::json!({ "type": "string" }),
+        Kind::Number => serde_json::json!({ "type": "number" }),
+        Kind::Boolean => serde_json::json!({ "type": "boolean" }),
+        Kind::Date => string("date"),
+        Kind::Time => serde_json::json!({ "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9](:[0-5][0-9])?$" }),
+        Kind::DateTime => string("date-time"),
+        Kind::Url => string("uri"),
+        Kind::Object => serde_json::json!({ "type": "object" }),
+        Kind::StringList => serde_json::json!({ "type": "array", "items": { "type": "string" } }),
+        Kind::NumberList => serde_json::json!({ "type": "array", "items": { "type": "number" } }),
+        Kind::ObjectList => serde_json::json!({ "type": "array", "items": { "type": "object" } }),
+    }
+}
+
 fn mismatch(kind: Kind, value: &Value) -> Option<String> {
     let ok = match kind {
         Kind::String => value.is_string(),
