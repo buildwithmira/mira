@@ -1226,6 +1226,7 @@ fn load_entry(root: &Path, path: &Path, schema: Option<&crate::schema::Schema>, 
     let src = std::fs::read_to_string(path)?;
     let shown = rel_path(root, path);
     let doc = parse_document(&src, &shown)?;
+    crate::content::check_frames(&doc.body, &shown, doc.body_line)?;
     if let Some(schema) = schema {
         schema.validate(&doc.data, &src.replace("\r\n", "\n"), &shown.display().to_string())?;
     }
@@ -1294,6 +1295,7 @@ fn load_routes(root: &Path, include_drafts: bool, components: &Components) -> Re
 
         let (data, body) = if ext == "md" || ext == "mdx" {
             let doc = parse_document(&src, &shown)?;
+            crate::content::check_frames(&doc.body, &shown, doc.body_line)?;
             let (md, twin, css) = if ext == "mdx" {
                 let r = crate::mdx::render(&doc.body, &shown, doc.body_line, components)?;
                 (r.markdown, r.twin, r.css)
