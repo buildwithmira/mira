@@ -12,7 +12,7 @@ publish.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
-mira_compiler = { version = "0.1.0", path = "../mira_compiler" }
+mira_compiler = { version = "0.2.0", path = "../mira_compiler" }
 notify = "8.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
