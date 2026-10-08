@@ -2,7 +2,7 @@
 
 All notable changes to Mira are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.2.0
 
 - Agent skills: `mira` for building and deploying Mira sites, and `mira-migrate` for moving sites to Mira. Install with `npx skills add buildwithmira/mira`.
 - Every Mira site can be read over MCP, wherever it is deployed. `mira mcp --url https://example.com` serves any deployed Mira site, on any host, from the files its build publishes.
