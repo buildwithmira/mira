@@ -151,7 +151,7 @@ impl Source {
             bail!("{at}: name exactly one of sanity, contentful, supabase, graphql, or json");
         }
         let plain = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-        let env_ok = |name: &Option<String>| name.as_deref().is_none_or(&plain);
+        let env_ok = |name: &Option<String>| name.as_deref().is_none_or(plain);
         if let Some(s) = &self.sanity
             && (!plain(&s.project) || !plain(&s.dataset) || !env_ok(&s.token_env))
         {
