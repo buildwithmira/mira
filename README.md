@@ -62,24 +62,34 @@ Run `mira <command> --help` for options.
 
 ## Use with MCP
 
-`mira mcp` serves a site's content to any client that speaks the [Model Context Protocol](https://modelcontextprotocol.io). It rebuilds the site before each answer, so results always match the current source. Add it to your client's MCP configuration:
+Every Mira site can be read over the [Model Context Protocol](https://modelcontextprotocol.io): its pages as Markdown, search, each collection's entries with their fields, data files, and media.
+
+Point an MCP client at any deployed Mira site, on any host:
 
 ```json
 {
   "mcpServers": {
     "my-site": {
       "command": "npx",
-      "args": ["-y", "@miraframework/mira", "mcp", "--root", "/path/to/my-site"]
+      "args": ["-y", "@miraframework/mira", "mcp", "--url", "https://example.com"]
     }
   }
 }
 ```
 
+Or at a project on disk, rebuilt before each answer: use `"--root", "/path/to/my-site"` in place of `"--url"`. Both answer the same way, because every build publishes what the server reads: a Markdown copy of each page, the search index, and a content index under `/_mira/`.
+
 | Tool | What it returns |
 | --- | --- |
+| `site_info` | The site's title, description, and URL, and every collection and data file it publishes |
 | `list_pages` | Every page with its URL, title, and description |
 | `read_page` | One page as Markdown, with its title and canonical URL |
 | `search` | The best matching pages for a query, with snippets |
+| `list_entries` | A collection's entries with all their fields, such as date, tags, and author |
+| `read_data` | One data file, such as navigation, as JSON |
+| `list_media` | Every image and video with its alt text, caption, and sizes |
+
+`--url` accepts `https://` addresses only, follows no redirects, and reads nothing outside the site.
 
 ## Agent skills
 

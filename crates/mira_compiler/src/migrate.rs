@@ -1258,7 +1258,7 @@ mod tests {
         assert!(config.contains("\"url\": \"https://old.example\""), "{config}");
         assert!(dest.join("MIGRATION.md").exists());
         // The migrated project builds.
-        let built = crate::build(&crate::BuildOptions { root: dest.clone(), out: dest.join("dist"), dev: false });
+        let built = crate::build(&crate::BuildOptions { root: dest.clone(), out: dest.join("dist"), dev: false, host_config: true });
         assert!(built.is_ok(), "{:?}", built.err());
     }
 

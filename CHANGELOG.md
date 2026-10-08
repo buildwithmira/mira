@@ -5,6 +5,11 @@ All notable changes to Mira are listed here. The format follows [Keep a Changelo
 ## Unreleased
 
 - Agent skills: `mira` for building and deploying Mira sites, and `mira-migrate` for moving sites to Mira. Install with `npx skills add buildwithmira/mira`.
+- Every Mira site can be read over MCP, wherever it is deployed. `mira mcp --url https://example.com` serves any deployed Mira site, on any host, from the files its build publishes.
+- New MCP tools: `site_info`, `list_entries` for a collection's entries with their fields, `read_data` for data files, and `list_media`, alongside `list_pages`, `read_page`, and `search`.
+- Each build writes a content index for agents: `/_mira/content.json`, plus `/_mira/collections/<name>.json` and `/_mira/data/<name>.json`. Turn it off with `agents.content: false`. `llms.txt` links the index and shows how to connect over MCP.
+- Fixed: `mira dev` and `mira mcp` no longer rewrite host config files such as `netlify.toml` in the project root. They pointed those files at a private build folder, so a deploy after running `mira dev` could publish the wrong directory.
+- Fixed: code blocks in Markdown keep the space between them and the text around them, and inline code no longer breaks across lines in the middle of a token such as `--help`. On screens narrower than 40rem, wide tables scroll inside themselves and long inline code wraps, so neither makes the page scroll sideways.
 
 ## 0.1.2
 

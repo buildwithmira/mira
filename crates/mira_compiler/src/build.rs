@@ -27,6 +27,10 @@ pub struct BuildOptions {
     pub out: PathBuf,
     /// Dev builds include drafts and the reload client.
     pub dev: bool,
+    /// Write the hosts' config files, such as `vercel.json`, to the project
+    /// root. Only `mira build` does: dev and MCP builds use a private output
+    /// folder, which those files must never point at.
+    pub host_config: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -131,7 +135,7 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     let build_id = format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis());
 
     let out_rel = opts.out.strip_prefix(root).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-    if !config.hosts.is_empty() && out_rel.is_empty() {
+    if opts.host_config && !config.hosts.is_empty() && out_rel.is_empty() {
         bail!("mira.config.json: hosts need the output folder inside the project\nhint: use an --out path under the project root");
     }
     let host_files = crate::hosts::files(&config, &out_rel)?;
@@ -232,7 +236,7 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
         extra.extend(shared.feeds.iter().map(|(_, feed)| feed.clone()));
         extra.extend(shared.media.outputs());
         extra.extend(config.redirects.keys().cloned());
-        extra.extend(["/media.json".to_string(), "/_mira/frame.js".to_string()]);
+        extra.extend(["/media.json".to_string(), "/_mira/frame.js".to_string(), "/_mira/content.json".to_string()]);
         extra.extend(rendered.iter().filter(|p| p.meta.twin.is_some()).map(|p| twin_url(&p.url)));
         let known = crate::lint::known_paths(&lint_pages, extra, &root.join("public"));
         warnings.extend(crate::lint::check(&lint_pages, &known, root)?);
@@ -258,6 +262,11 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     let media_files = shared.media.write(&opts.out)?;
     if rendered.iter().any(|p| crate::media::Pipeline::uses_video(&p.html)) {
         std::fs::write(mira_dir.join("frame.js"), FRAME_JS)?;
+    }
+    for (path, contents) in content_index(&config, &collections, &shared.data, media_files > 0)? {
+        let file = mira_dir.join(path);
+        std::fs::create_dir_all(file.parent().unwrap())?;
+        std::fs::write(file, contents)?;
     }
 
     let mut pages = Vec::with_capacity(rendered.len());
@@ -289,6 +298,7 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     warnings.extend(crate::lint::seo(&metas));
     let mut outputs = write_site_files(&config, root, &opts.out, &metas, &shared.feeds, media_files > 0, &mut warnings)?;
     outputs.push("_mira/search.json".into());
+    outputs.push("_mira/content.json".into());
     for file in host_files.iter().filter(|f| matches!(f.place, crate::hosts::Place::Output)) {
         std::fs::write(opts.out.join(file.name), &file.contents)?;
         outputs.push(file.name.to_string());
@@ -319,8 +329,10 @@ pub fn build(opts: &BuildOptions) -> Result<BuildReport> {
     if redirect_pages > 0 {
         outputs.push(format!("{redirect_pages} redirect {}", if redirect_pages == 1 { "page" } else { "pages" }));
     }
-    for name in crate::hosts::write_root(&host_files, root)? {
-        outputs.push(format!("{name} (project root)"));
+    if opts.host_config {
+        for name in crate::hosts::write_root(&host_files, root)? {
+            outputs.push(format!("{name} (project root)"));
+        }
     }
     if media_files > 0 {
         outputs.push(format!("media.json ({media_files} {})", if media_files == 1 { "file" } else { "files" }));
@@ -989,6 +1001,73 @@ fn load_data(root: &Path) -> Result<Value> {
     Ok(Value::Object(data))
 }
 
+/// The site's structured content for agents, as files under `_mira/`:
+/// `content.json` describes the site and lists every collection and data
+/// file, `collections/<name>.json` holds published entries with their
+/// fields, and `data/<name>.json` each data file. `mira mcp` reads the same
+/// files locally and from a deployed site, so both answer alike.
+fn content_index(
+    config: &Config,
+    collections: &BTreeMap<String, Vec<Entry>>,
+    data: &Value,
+    has_media: bool,
+) -> Result<Vec<(String, String)>> {
+    let mut files = Vec::new();
+    let mut listed_collections = Vec::new();
+    let mut listed_data = Vec::new();
+    if config.agents.content {
+        for (name, entries) in collections {
+            let published: Vec<Value> = entries
+                .iter()
+                .filter(|e| !e.data.get("robots").and_then(Value::as_str).is_some_and(|r| r.contains("noindex")))
+                .map(|e| {
+                    let mut map = entry_json(e);
+                    if let Value::Object(m) = &mut map {
+                        for derived in ["prev", "next", "toc"] {
+                            m.remove(derived);
+                        }
+                        // Entries without a page of their own carry their body here.
+                        if e.url.is_none() {
+                            m.insert("markdown".into(), Value::from(e.markdown.clone()));
+                        }
+                    }
+                    map
+                })
+                .collect();
+            let fields = config.collections.get(name).map(|s| serde_json::to_value(&s.fields)).transpose()?;
+            listed_collections.push(json!({
+                "name": name,
+                "count": published.len(),
+                "fields": fields,
+                "url": format!("/_mira/collections/{name}.json"),
+            }));
+            files.push((format!("collections/{name}.json"), serde_json::to_string(&published)?));
+        }
+        if let Value::Object(map) = data {
+            for (name, value) in map {
+                listed_data.push(json!({ "name": name, "url": format!("/_mira/data/{name}.json") }));
+                files.push((format!("data/{name}.json"), serde_json::to_string(value)?));
+            }
+        }
+    }
+    let index = json!({
+        "schema": 1,
+        "generator": format!("mira {}", env!("CARGO_PKG_VERSION")),
+        "site": {
+            "title": config.site.title,
+            "description": config.site.description,
+            "url": config.site.url,
+            "lang": config.site.lang,
+        },
+        "pages": "/_mira/search.json",
+        "media": has_media.then_some("/media.json"),
+        "collections": listed_collections,
+        "data": listed_data,
+    });
+    files.push(("content.json".into(), serde_json::to_string_pretty(&index)?));
+    Ok(files)
+}
+
 fn entry_json(entry: &Entry) -> Value {
     let mut map = entry.data.clone();
     map.insert("slug".into(), Value::from(entry.slug.clone()));
@@ -1232,4 +1311,63 @@ fn rel_path(root: &Path, path: &Path) -> PathBuf {
 
 fn rel(root: &Path, path: &Path) -> String {
     rel_path(root, path).display().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_full_builds_write_host_config() {
+        let root = std::env::temp_dir().join(format!("mira-build-{}-host-config", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        crate::scaffold::scaffold(&root).unwrap();
+        let config = root.join("mira.config.json");
+        let mut value: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+        value["hosts"] = serde_json::json!({ "netlify": {} });
+        std::fs::write(&config, value.to_string()).unwrap();
+
+        // A dev build into a private folder leaves the project root alone.
+        build(&BuildOptions { root: root.clone(), out: root.join(".mira/dev"), dev: true, host_config: false }).unwrap();
+        assert!(!root.join("netlify.toml").exists());
+
+        build(&BuildOptions { root: root.clone(), out: root.join("dist"), dev: false, host_config: true }).unwrap();
+        let toml = std::fs::read_to_string(root.join("netlify.toml")).unwrap();
+        assert!(toml.contains("publish = \"dist\""), "{toml}");
+    }
+
+    #[test]
+    fn publishes_content_for_agents() {
+        let root = std::env::temp_dir().join(format!("mira-build-{}-content", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        crate::scaffold::scaffold(&root).unwrap();
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        std::fs::write(root.join("data/team.json"), r#"[{"name": "Ada"}]"#).unwrap();
+        let out = root.join("dist");
+        build(&BuildOptions { root: root.clone(), out: out.clone(), dev: false, host_config: true }).unwrap();
+
+        let index: Value = serde_json::from_str(&std::fs::read_to_string(out.join("_mira/content.json")).unwrap()).unwrap();
+        assert_eq!(index["pages"], "/_mira/search.json");
+        let posts = &index["collections"][0];
+        assert_eq!(posts["name"], "posts");
+        assert_eq!(posts["count"], 2);
+        assert_eq!(posts["fields"]["title"], "string");
+        assert_eq!(index["data"][0]["url"], "/_mira/data/team.json");
+
+        let entries: Vec<Value> =
+            serde_json::from_str(&std::fs::read_to_string(out.join("_mira/collections/posts.json")).unwrap()).unwrap();
+        assert!(entries.iter().all(|e| e["url"].as_str().is_some_and(|u| u.starts_with("/posts/")) && e.get("toc").is_none()));
+        let team: Value = serde_json::from_str(&std::fs::read_to_string(out.join("_mira/data/team.json")).unwrap()).unwrap();
+        assert_eq!(team[0]["name"], "Ada");
+
+        // Turned off, only the site description and pages remain.
+        let config = root.join("mira.config.json");
+        let mut value: Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+        value["agents"] = json!({ "content": false });
+        std::fs::write(&config, value.to_string()).unwrap();
+        build(&BuildOptions { root: root.clone(), out: out.clone(), dev: false, host_config: true }).unwrap();
+        let index: Value = serde_json::from_str(&std::fs::read_to_string(out.join("_mira/content.json")).unwrap()).unwrap();
+        assert_eq!(index["collections"], json!([]));
+        assert!(!out.join("_mira/data/team.json").exists());
+    }
 }

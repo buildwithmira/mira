@@ -286,7 +286,6 @@ a.mira-card:hover { transform: translateY(-2px); border-color: var(--line-strong
 /* @component mira-code */
 .mira-code {
   position: relative;
-  margin: 0;
   padding: var(--space-4) var(--space-6);
   background: var(--surface-2);
   border-radius: var(--radius-md);
