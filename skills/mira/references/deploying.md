@@ -63,7 +63,7 @@ Vercel is verified live, Markdown negotiation included. GitHub Pages is verified
 
 ## Redirects
 
-When a page moves, map the old path to the new one. [`mira migrate`](https://mira.omrajguru.site/docs/migrating/) fills this in for you.
+When a page moves, map the old path to the new one. [`mira migrate`](https://miraweb.in/docs/migrating/) fills this in for you.
 
 ```json
 {

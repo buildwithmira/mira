@@ -27,9 +27,9 @@ mira migrate ./old-site ./new-site --from hugo
 | From the old site | In the Mira project |
 | --- | --- |
 | Markdown and MDX pages | `routes/<path>/index.md`, at the same URL |
-| Posts in `posts/`, `_posts/`, `blog/`, `articles/`, `news/`, `notes/`, `writing/`, `changelog/`, `journal/` | A [collection](https://mira.omrajguru.site/docs/collections/) in `content/<name>/`, with `routes/<name>/[slug].mira` and an index page |
+| Posts in `posts/`, `_posts/`, `blog/`, `articles/`, `news/`, `notes/`, `writing/`, `changelog/`, `journal/` | A [collection](https://miraweb.in/docs/collections/) in `content/<name>/`, with `routes/<name>/[slug].mira` and an index page |
 | YAML (`---`) or TOML (`+++`) frontmatter | YAML frontmatter, with common names mapped (below) |
-| Images referenced by relative path, wherever they live | Copied next to the new file, as [media frames](https://mira.omrajguru.site/docs/media/) |
+| Images referenced by relative path, wherever they live | Copied next to the new file, as [media frames](https://miraweb.in/docs/media/) |
 | `public/`, `static/`, `assets/` | `public/` |
 | Links to `.md` files | Links to the new page URLs |
 | A 404 page | `routes/404.md` |
@@ -80,8 +80,8 @@ mira dev
 
 1. Read `MIGRATION.md`. It lists every item to review, with its file and line, and every redirect.
 2. Rebuild the listed pages as `.mira` routes. The home page and post layout are generated as a starting point.
-3. Compare the old site's `sitemap.xml` with `dist/sitemap.xml`. Next.js, Gatsby, and Astro can set URLs in code, which `mira migrate` does not run. Add any missing URLs under [`redirects`](https://mira.omrajguru.site/docs/configuration/#redirects).
-4. Add [`hosts`](https://mira.omrajguru.site/docs/deploying/#hosts) for where the site will live, and deploy.
+3. Compare the old site's `sitemap.xml` with `dist/sitemap.xml`. Next.js, Gatsby, and Astro can set URLs in code, which `mira migrate` does not run. Add any missing URLs under [`redirects`](https://miraweb.in/docs/configuration/#redirects).
+4. Add [`hosts`](https://miraweb.in/docs/deploying/#hosts) for where the site will live, and deploy.
 
 ## For agents
 
@@ -110,4 +110,4 @@ mira migrate ./old-site ./new-site --json
 }
 ```
 
-When the build fails, `build.error` has the same shape as [`mira build --json`](https://mira.omrajguru.site/docs/coding-agents/#json-output) errors, so an agent can fix the file and run `mira build` again.
+When the build fails, `build.error` has the same shape as [`mira build --json`](https://miraweb.in/docs/coding-agents/#json-output) errors, so an agent can fix the file and run `mira build` again.

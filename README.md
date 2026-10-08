@@ -89,7 +89,7 @@ Or at a project on disk, rebuilt when its files change: use `"--root", "/path/to
 | `data` | A data file, or one value in it, as JSON |
 | `media` | Images and video with alt text, captions, and sizes |
 
-Sites can also declare [actions](https://mira.omrajguru.site/docs/actions/), such as booking a table, with typed input and an endpoint of your choice. Each becomes a tool, and Mira sends nothing until the person using the agent agrees.
+Sites can also declare [actions](https://miraweb.in/docs/actions/), such as booking a table, with typed input and an endpoint of your choice. Each becomes a tool, and Mira sends nothing until the person using the agent agrees.
 
 Answers are sized for agents: search returns five short matches, `read` can return a single section, and `items` filters before anything is sent. `mira audit --agent` reports what each page costs an agent to read.
 
