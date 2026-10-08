@@ -102,6 +102,11 @@ impl Source {
         Ok(Source::new(Origin::Site { base: site_base(url)? }))
     }
 
+    /// A deployed site, whose files are someone else's data.
+    fn is_remote(&self) -> bool {
+        matches!(self.origin, Origin::Site { .. })
+    }
+
     fn describe(&self) -> String {
         match &self.origin {
             Origin::Project { root, .. } => root.display().to_string(),
@@ -378,6 +383,9 @@ fn tools_for(source: &Source) -> Value {
     if let Value::Array(tools) = &mut list {
         for action in actions {
             let Some(name) = action["name"].as_str() else { continue };
+            if source.is_remote() && mira_compiler::actions::endpoint_is_local(action["endpoint"].as_str().unwrap_or("")) {
+                continue;
+            }
             let mut schema = action["input_schema"].clone();
             // A deployed site's actions are data from the network: skip one
             // whose schema is malformed rather than fail the whole list.
@@ -548,12 +556,18 @@ fn act(source: &Source, action: &Value, args: &Value, confirm: &mut dyn FnMut(&s
     if !mira_compiler::actions::endpoint_allowed(endpoint) {
         bail!("{name} has an endpoint Mira will not send to: {endpoint}");
     }
+    // A deployed site may not reach this machine or its network, and its
+    // actions always ask first, whatever the site sets.
+    let remote = source.is_remote();
+    if remote && mira_compiler::actions::endpoint_is_local(endpoint) {
+        bail!("{name} points at a local or private address, which actions from a deployed site may not reach: {endpoint}");
+    }
     let mut input = args.as_object().cloned().unwrap_or_default();
     let token = input.remove("confirm").and_then(|t| t.as_str().map(str::to_string));
     let fields = action["input"].as_object().cloned().unwrap_or_default();
     let body = Value::Object(mira_compiler::actions::validate(&fields, &Value::Object(input))?).to_string();
 
-    if action["confirm"] != json!(false) {
+    if remote || action["confirm"] != json!(false) {
         let summary = summarize(action, &body);
         match (token, confirm(&summary)) {
             (_, Some(true)) => {}
@@ -1228,5 +1242,40 @@ mod tests {
         let (err, text) = ask(input, Some(true));
         assert!(!err && text.starts_with("Sent."), "{text}");
         assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
+    }
+
+    /// A deployed site cannot point actions at this machine, and its
+    /// actions always ask first, even with `confirm: false`.
+    #[test]
+    fn deployed_actions_stay_off_local_networks() {
+        let actions = json!({ "schema": 1, "actions": [
+            { "name": "probe", "description": "Probe.", "input": {}, "input_schema": { "type": "object", "properties": {} },
+              "endpoint": "http://localhost:9/admin", "confirm": false },
+            { "name": "join", "description": "Join.", "input": {}, "input_schema": { "type": "object", "properties": {} },
+              "endpoint": "https://api.example.com/join", "confirm": false }
+        ]});
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let body = actions.to_string();
+        std::thread::spawn(move || {
+            for request in server.incoming_requests() {
+                let response = match request.url() {
+                    "/_mira/actions.json" => tiny_http::Response::from_string(body.clone()),
+                    _ => tiny_http::Response::from_string("not found").with_status_code(404),
+                };
+                let _ = request.respond(response);
+            }
+        });
+        let site = Source::site(&format!("http://127.0.0.1:{port}")).unwrap();
+        let names: Vec<String> = tools_for(&site).as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        assert!(names.contains(&"join".to_string()) && !names.contains(&"probe".to_string()), "{names:?}");
+        let ask = |name: &str| {
+            let reply = call(&site, &json!({ "name": name, "arguments": {} }), &mut |_| None);
+            (reply["isError"] == json!(true), reply["content"][0]["text"].as_str().unwrap().to_string())
+        };
+        let (err, text) = ask("probe");
+        assert!(err && text.contains("local or private address"), "{text}");
+        let (err, text) = ask("join");
+        assert!(!err && text.starts_with("Not sent yet"), "confirm: false is not honored for a deployed site: {text}");
     }
 }

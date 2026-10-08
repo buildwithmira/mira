@@ -58,7 +58,7 @@ Each action becomes an MCP tool with the action's name and an input schema built
 2. **The person agrees.** When the MCP client can ask its user directly, Mira asks it to show what will be sent, and to whom, and sends only on yes. Otherwise the tool returns that summary with a one-time confirmation, and the agent has to ask the person and call again with it. A confirmation works once, only for the exact input it was given for, and for 10 minutes.
 3. **The input is sent,** once, and the endpoint's answer comes back.
 
-Set `"confirm": false` only for actions that are harmless to repeat and send nothing personal.
+Set `"confirm": false` only for actions that are harmless to repeat and send nothing personal. It applies when the agent reads your project; actions read from a deployed site always ask.
 
 ## Without MCP
 
@@ -74,4 +74,4 @@ Every build publishes the actions at `/_mira/actions.json`, with a JSON Schema f
 
 - Mira sends only to the endpoint the site declares, only over `https://` (or to `localhost`), and follows no redirects.
 - Input is limited to the declared fields and 16 KB.
-- In `--url` mode, the actions come from the deployed site, and Mira checks each endpoint again before sending.
+- In `--url` mode, the actions come from someone else's site, so Mira treats them as untrusted. Each endpoint is checked again before sending. An endpoint on `localhost`, a loopback, private, or link-local address is refused, so a site cannot use your agent to reach your own machine or network. And every action asks the person first, even when the site sets `confirm: false`.

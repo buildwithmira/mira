@@ -303,7 +303,7 @@ impl Fetcher<'_> {
     /// back to the cached copy. `label` is how errors name the request,
     /// without any token.
     fn get(&mut self, url: &str, headers: &[(String, String)], body: Option<&str>, label: &str) -> Result<Vec<u8>> {
-        let file = cache_file(self.root, &cache_key(url, body));
+        let file = cache_file(self.root, &cache_key(url, body, headers));
         let cached = std::fs::metadata(&file).ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok());
         if self.dev && cached.is_some_and(|age| age < DEV_FRESH) {
             return Ok(std::fs::read(&file)?);
@@ -313,6 +313,12 @@ impl Fetcher<'_> {
                 std::fs::create_dir_all(file.parent().unwrap())?;
                 std::fs::write(&file, &bytes)?;
                 Ok(bytes)
+            }
+            // A refused token must not be answered from what an earlier
+            // token could read: drop that copy and fail.
+            Err(err) if err.downcast_ref::<Refused>().is_some() => {
+                let _ = std::fs::remove_file(&file);
+                Err(err.context(label.to_string()))
             }
             Err(err) if cached.is_some() => {
                 self.warnings.push(format!("{label}: {err}; built from the copy cached {} minutes ago", cached.unwrap().as_secs() / 60));
@@ -485,14 +491,32 @@ pub(crate) fn cache_file(root: &Path, key: &str) -> PathBuf {
     root.join(".mira").join("cache").join("sources").join(format!("{}.json", hash(key)))
 }
 
-/// A request's URL and body, which together decide its response. Tokens
-/// are left out, so they never touch the disk.
-pub(crate) fn cache_key(url: &str, body: Option<&str>) -> String {
-    match body {
-        Some(body) => format!("{url}\n{body}"),
-        None => url.to_string(),
+/// What decides a response: the URL, the body, and the credentials sent.
+/// Only a hash of this names the cache file, so tokens never touch the
+/// disk, and a response cached for one token is never served to another.
+pub(crate) fn cache_key(url: &str, body: Option<&str>, headers: &[(String, String)]) -> String {
+    let mut key = url.to_string();
+    if let Some(body) = body {
+        key.push('\n');
+        key.push_str(body);
+    }
+    for (name, value) in headers {
+        key.push_str(&format!("\n{name}: {value}"));
+    }
+    key
+}
+
+/// A source that refused the request's credentials (HTTP 401 or 403).
+#[derive(Debug)]
+struct Refused(String);
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
+
+impl std::error::Error for Refused {}
 
 fn bearer(token: Option<String>) -> Vec<(String, String)> {
     token.map(|t| vec![("Authorization".to_string(), format!("Bearer {t}"))]).unwrap_or_default()
@@ -553,7 +577,9 @@ fn http(url: &str, headers: &[(String, String)], body: Option<&str>) -> Result<V
     }
     match status {
         200..=299 => Ok(bytes),
-        401 | 403 => bail!("{host} refused the request (HTTP {status})\nhint: check the token and its permissions"),
+        401 | 403 => Err(anyhow::Error::new(Refused(format!(
+            "{host} refused the request (HTTP {status})\nhint: check the token and its permissions"
+        )))),
         _ => {
             let text = String::from_utf8_lossy(&bytes);
             let detail: String = text.chars().take(200).collect();
@@ -895,5 +921,11 @@ mod tests {
             assert!(source(bad.clone()).check("posts").is_err(), "{bad}");
         }
         assert_eq!(encode("*[_type == \"post\"]"), "%2A%5B_type%20%3D%3D%20%22post%22%5D");
+        // Each credential gets its own cache entry.
+        let token = |t: &str| vec![("Authorization".to_string(), format!("Bearer {t}"))];
+        assert_ne!(
+            cache_file(Path::new("."), &cache_key("https://x.dev", None, &token("a"))),
+            cache_file(Path::new("."), &cache_key("https://x.dev", None, &token("b")))
+        );
     }
 }

@@ -17,6 +17,8 @@ use crate::ui;
 struct Row {
     url: String,
     markdown: usize,
+    /// The page has no Markdown copy, so agents cannot read it.
+    missing: bool,
     index: usize,
     sections: usize,
     largest: usize,
@@ -30,11 +32,16 @@ pub fn run(root: &Path, budget: usize, json_out: bool) -> Result<()> {
     if !json_out {
         ui::header("audit", &root.display().to_string());
     }
+    if !mira_compiler::Config::load(root)?.agents.twins {
+        bail!(
+            "mira.config.json: agents.twins is false, so pages have no Markdown copies and agents cannot read them over MCP\nhint: remove \"twins\": false from agents to audit what agents read"
+        );
+    }
     let out = std::path::absolute(root)?.join(".mira").join("audit");
     build(&BuildOptions { root: root.to_path_buf(), out: out.clone(), dev: false, host_config: false })?;
-    let read = |path: &str| std::fs::read_to_string(out.join(path)).unwrap_or_default();
+    let read = |path: &str| std::fs::read_to_string(out.join(path)).ok();
 
-    let index: Vec<Value> = serde_json::from_str(&read("_mira/search.json")).unwrap_or_default();
+    let index: Vec<Value> = read("_mira/search.json").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
     if index.is_empty() {
         bail!("the build wrote no search index, so there is nothing to audit");
     }
@@ -47,29 +54,37 @@ pub fn run(root: &Path, budget: usize, json_out: bool) -> Result<()> {
                 path => format!("{}.md", path.trim_start_matches('/')),
             };
             let markdown = read(&twin);
-            let (sections, largest) = sections(&markdown);
-            Row { markdown: tokens(&markdown), index: tokens(&doc.to_string()), sections, largest, url }
+            let (sections, largest) = sections(markdown.as_deref().unwrap_or(""));
+            Row {
+                missing: markdown.is_none(),
+                markdown: tokens(markdown.as_deref().unwrap_or("")),
+                index: tokens(&doc.to_string()),
+                sections,
+                largest,
+                url,
+            }
         })
         .collect();
     rows.sort_by_key(|r| std::cmp::Reverse(r.markdown));
 
     let over: Vec<&Row> = rows.iter().filter(|r| r.markdown > budget).collect();
     let schemas = tokens(&crate::mcp::tools().to_string());
-    let llms = tokens(&read("llms.txt"));
-    let full = tokens(&read("llms-full.txt"));
+    let llms = tokens(&read("llms.txt").unwrap_or_default());
+    let full = tokens(&read("llms-full.txt").unwrap_or_default());
+    let missing: Vec<&Row> = rows.iter().filter(|r| r.missing).collect();
 
     if json_out {
         let pages: Vec<Value> = rows
             .iter()
             .map(|r| {
                 json!({
-                    "url": r.url, "markdown_tokens": r.markdown, "index_tokens": r.index,
+                    "url": r.url, "markdown_tokens": (!r.missing).then_some(r.markdown), "index_tokens": r.index,
                     "sections": r.sections, "largest_section_tokens": r.largest, "over_budget": r.markdown > budget,
                 })
             })
             .collect();
         let report = json!({
-            "budget": budget, "pages": pages, "over_budget": over.len(),
+            "budget": budget, "pages": pages, "over_budget": over.len(), "without_markdown": missing.len(),
             "llms_txt_tokens": llms, "llms_full_tokens": full, "mcp_tool_tokens": schemas,
         });
         println!("{}", json!({ "ok": true, "schema": 1, "report": report }));
@@ -95,6 +110,9 @@ pub fn run(root: &Path, budget: usize, json_out: bool) -> Result<()> {
     eprintln!("  {}  {llms} tokens  {}", ui::bold("llms.txt"), ui::dim(&format!("llms-full.txt {full}")));
     eprintln!("  {}  {schemas} tokens  {}", ui::bold("mcp tools"), ui::dim("sent once per session"));
     eprintln!();
+    for r in &missing {
+        ui::warning(&format!("{} has no Markdown copy, so agents cannot read it over MCP", r.url));
+    }
     for r in &over {
         let advice = if r.sections > 1 && r.largest <= budget {
             format!("agents can read it a section at a time; its largest section is {} tokens", r.largest)
@@ -105,7 +123,7 @@ pub fn run(root: &Path, budget: usize, json_out: bool) -> Result<()> {
         };
         ui::warning(&format!("{} is {} tokens, over the {budget} token budget: {advice}", r.url, r.markdown));
     }
-    if over.is_empty() {
+    if over.is_empty() && missing.is_empty() {
         ui::success(&format!("all {} pages are within {budget} tokens", rows.len()));
     }
     eprintln!();

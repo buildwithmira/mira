@@ -137,6 +137,7 @@ Tokens are never written in `mira.config.json`. Each source names an environment
 
 - `mira build` fetches every source on every build, so a deploy publishes current content. Deploy again when content changes, for example with your CMS's webhook and your host's deploy hook.
 - `mira dev` reuses what it fetched for 10 minutes, so saving a file does not refetch.
-- Responses are cached in `.mira/cache/`. If a source cannot be reached and a cached copy exists, the build uses it and warns, with the copy's age. Without a cached copy, the build fails with the reason.
+- Responses are cached in `.mira/cache/`, separately for each set of credentials, so a copy fetched with one token is never used with another. If a source cannot be reached and a cached copy exists, the build uses it and warns, with the copy's age. Without a cached copy, the build fails with the reason.
+- A source that refuses the token (HTTP 401 or 403) fails the build and its cached copy is deleted, so revoking a token stops its content from being published.
 - Requests go over HTTPS only, time out after 30 seconds, and are limited to 32 MB.
 - An item that does not match the schema fails the build, naming the collection and the item, such as `collections.posts.source item 4: missing required field date`.
