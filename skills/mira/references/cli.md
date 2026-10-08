@@ -56,7 +56,7 @@ mira migrate <source> <dest> [--from <framework>] [--dry-run] [--json]
 | `--dry-run` | off | Report what would move without writing anything |
 | `--json` | off | Print the report and build result as JSON |
 
-Moves a site into a new Mira project at `dest`, which must be new or empty. The old project is only read, and nothing in it runs. See [Migrating to Mira](migrating.md).
+Moves a site into a new Mira project at `dest`, which must be new or empty. The old project is only read, and nothing in it runs. See [Migrating to Mira](https://mira.omrajguru.site/docs/migrating/).
 
 ## mira mcp
 

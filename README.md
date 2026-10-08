@@ -19,13 +19,13 @@ npm run dev
 
 - **Static output.** Every page is an `index.html` with its CSS inlined. The optional runtime is about 1 KB gzipped, and the build fails if it ever exceeds 2 KB.
 - **Page transitions.** Cross-document View Transitions with shared elements (`mira-morph`), per-route transition pairs, direction awareness, and reduced-motion support. Links are prefetched or prerendered with Speculation Rules.
-- **Content collections.** Markdown entries in `content/` with typed frontmatter schemas, validated on every build.
-- **Templates.** `.mira` files with `{{ }}` expressions, `{#if}`, `{#each}`, layouts, and slots. Output is escaped by default.
+- **Content collections.** Markdown and MDX entries in `content/`, or items from Sanity, Contentful, Supabase, any GraphQL API, or any JSON endpoint, all checked against typed schemas on every build.
+- **Templates.** `.mira` files with `{{ }}` expressions, `{#if}`, `{#each}`, layouts, and slots. Output is escaped by default. MDX files use `.mira` components, rendered at build time.
 - **Media.** `<mira-frame>` reserves space for each image, encodes AVIF, and draws an 8×8 placeholder inline until the image loads.
 - **Search.** A search index is written at build time and loaded only by pages that use search.
 - **Security.** A strict Content Security Policy with a hash for every inline script and style, plus security headers for every supported host.
-- **Machine-readable output.** Each page has a Markdown version, plus `llms.txt`, a sitemap, RSS feeds, and JSON-LD. `mira build --json` reports results and errors as JSON.
-- **Hosting.** Writes native config for Vercel, Netlify, Cloudflare Pages, GitHub Pages, Firebase, Render, Azure Static Web Apps, Docker (nginx), Deno Deploy, and S3 with CloudFront.
+- **Agents.** Each page has a Markdown version, plus `llms.txt` with page sizes, a sitemap, RSS feeds, and JSON-LD. Every site can be read over MCP, and can declare actions, such as booking a table, that agents take with the person's agreement. `mira build --json` reports results and errors as JSON.
+- **Hosting.** Writes native config for Vercel, Netlify, Cloudflare Pages, GitHub Pages, Firebase, Render, Azure Static Web Apps, AWS Amplify, S3 with CloudFront, Deno Deploy, and Docker (nginx), which runs on Cloud Run, App Runner, and Azure Container Apps.
 - **Migration.** `mira migrate` imports Next.js, Astro, Hugo, Jekyll, Docusaurus, Gatsby, Eleventy, and VitePress sites, and writes redirects for every URL that changes.
 
 The starter site builds in about 20 ms, with pages between 5 and 7 KB gzipped.
